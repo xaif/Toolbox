@@ -372,7 +372,10 @@ struct BatchRenameView: View {
         } footer: {
             JobBar(runner: runner, actionTitle: inPlace ? "Rename Files" : "Save Copies",
                    canRun: !rows.isEmpty && errors == 0 && changes > 0 && rules.regexError == nil,
-                   hint: hint(rows: rows, errors: errors, changes: changes), action: start)
+                   hint: hint(rows: rows, errors: errors, changes: changes),
+                   idleMessage: inPlace ? "Files are renamed where they are. You can undo the last rename."
+                                        : "Originals stay untouched. Renamed copies go to a new folder.",
+                   action: start)
         }
         .onChange(of: runner.phase) {
             guard runner.phase == .succeeded, inPlace else { return }

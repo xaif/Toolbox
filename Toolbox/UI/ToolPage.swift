@@ -153,6 +153,8 @@ struct JobBar: View {
     var canRun = true
     /// Shown when idle and the action is disabled, e.g. "Add at least two files".
     var hint: String?
+    /// Shown when idle and ready. Defaults to the "originals untouched" note.
+    var idleMessage = "Originals stay untouched. Results go to a new folder."
     var action: () -> Void
 
     var body: some View {
@@ -182,7 +184,7 @@ struct JobBar: View {
             if let hint, !canRun {
                 Text(hint).foregroundStyle(.secondary)
             } else {
-                Text("Originals stay untouched. Results go to a new folder.")
+                Text(idleMessage)
                     .foregroundStyle(.tertiary)
             }
         case .running:
