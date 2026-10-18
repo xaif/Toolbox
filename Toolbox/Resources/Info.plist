@@ -24,6 +24,8 @@
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Toolbox reads the files selected in Finder so the quick launcher can open them in a tool.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Toolbox uses the camera to add a webcam overlay to screen recordings.</string>
 	<key>NSHumanReadableCopyright</key>

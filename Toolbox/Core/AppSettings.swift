@@ -26,6 +26,11 @@ enum SettingsKey {
     static let outputCustomPath = "output.customPath"
     static let revealWhenDone = "output.revealWhenDone"
     static let hotKeyEnabled = "hotkey.enabled"
+    static let hotKeyCode = "hotkey.keyCode"
+    static let hotKeyModifiers = "hotkey.modifiers"
+    static let hotKeyAction = "hotkey.action"
+    static let launcherUsesFinderSelection = "launcher.finderSelection"
+    static let recentTools = "launcher.recentTools"
     static func customExecutablePath(_ dependency: ExternalDependency) -> String {
         "dependency.\(dependency.rawValue).path"
     }
@@ -39,6 +44,8 @@ enum AppSettings {
             SettingsKey.outputMode: OutputDestinationMode.downloads.rawValue,
             SettingsKey.revealWhenDone: false,
             SettingsKey.hotKeyEnabled: true,
+            SettingsKey.hotKeyAction: "launcher",
+            SettingsKey.launcherUsesFinderSelection: true,
         ])
     }
 
@@ -53,6 +60,16 @@ enum AppSettings {
 
     static var revealWhenDone: Bool { defaults.bool(forKey: SettingsKey.revealWhenDone) }
     static var hotKeyEnabled: Bool { defaults.bool(forKey: SettingsKey.hotKeyEnabled) }
+    static var launcherUsesFinderSelection: Bool { defaults.bool(forKey: SettingsKey.launcherUsesFinderSelection) }
+
+    /// Most recently opened tool IDs, newest first.
+    static var recentToolIDs: [String] { defaults.stringArray(forKey: SettingsKey.recentTools) ?? [] }
+
+    static func noteToolOpened(_ id: String) {
+        var recent = recentToolIDs.filter { $0 != id }
+        recent.insert(id, at: 0)
+        defaults.set(Array(recent.prefix(8)), forKey: SettingsKey.recentTools)
+    }
 
     static func customExecutable(for dependency: ExternalDependency) -> URL? {
         guard let path = defaults.string(forKey: SettingsKey.customExecutablePath(dependency)), !path.isEmpty else { return nil }

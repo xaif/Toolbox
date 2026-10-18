@@ -76,10 +76,12 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text("⌃⌥Space")
-                .font(.caption.monospaced())
-                .foregroundStyle(.tertiary)
-                .help("Open Toolbox from any app")
+            if AppSettings.hotKeyEnabled {
+                Text(HotKeyShortcut.current.displayString)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .help("Press this in any app to open the quick launcher")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)

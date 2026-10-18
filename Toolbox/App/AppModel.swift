@@ -93,6 +93,18 @@ final class AppModel {
 
     func open(_ destination: Destination) {
         self.destination = destination
+        if case .tool(let id) = destination { AppSettings.noteToolOpened(id) }
+    }
+
+    /// Opens a tool in the main window, optionally handing it files (e.g. from the launcher).
+    func openTool(_ tool: Tool, with files: [URL] = []) {
+        bringMainWindowForward()
+        let runner = JobCenter.shared.runner(for: tool.id)
+        if let input = tool.input, !files.isEmpty, !runner.isRunning {
+            let accepted = input.accepted(from: files)
+            if !accepted.isEmpty { runner.inputs = accepted }
+        }
+        open(.tool(tool.id))
     }
 
     func focusSearch() {
@@ -102,6 +114,11 @@ final class AppModel {
 
     /// Brings the app forward and focuses search. Used by the global hotkey.
     func summon() {
+        bringMainWindowForward()
+        focusSearch()
+    }
+
+    func bringMainWindowForward() {
         NSApp.activate()
         if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" && $0.canBecomeMain }) {
             if window.isMiniaturized { window.deminiaturize(nil) }
@@ -109,6 +126,5 @@ final class AppModel {
         } else {
             openMainWindow?()
         }
-        focusSearch()
     }
 }

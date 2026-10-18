@@ -28,15 +28,21 @@ struct ToolboxApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var hotKey: GlobalHotKey?
     private var defaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        updateHotKey()
+        MainActor.assumeIsolated {
+            HotKeyManager.shared.update()
+            #if DEBUG
+            if UserDefaults.standard.bool(forKey: "debugShowLauncher") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { LauncherController.shared.show() }
+            }
+            #endif
+        }
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.updateHotKey()
+        ) { _ in
+            MainActor.assumeIsolated { HotKeyManager.shared.update() }
         }
     }
 
@@ -58,15 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Quit Anyway")
         return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
-
-    private func updateHotKey() {
-        let enabled = AppSettings.hotKeyEnabled
-        if enabled, hotKey == nil {
-            hotKey = GlobalHotKey { Task { @MainActor in AppModel.shared.summon() } }
-        } else if !enabled, hotKey != nil {
-            hotKey = nil
-        }
-    }
 }
 
 struct AppCommands: Commands {
@@ -78,6 +75,7 @@ struct AppCommands: Commands {
                 .keyboardShortcut("k")
             Button("Home") { model.open(.home) }
                 .keyboardShortcut("0")
+            Button("Show Quick Launcher") { LauncherController.shared.show() }
         }
         CommandGroup(before: .sidebar) {
             ForEach(FeaturedCollection.allCases) { collection in

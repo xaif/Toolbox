@@ -16,6 +16,9 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.outputCustomPath) private var customPath = ""
     @AppStorage(SettingsKey.revealWhenDone) private var revealWhenDone = false
     @AppStorage(SettingsKey.hotKeyEnabled) private var hotKeyEnabled = true
+    @AppStorage(SettingsKey.hotKeyAction) private var hotKeyAction = HotKeyAction.launcher.rawValue
+    @AppStorage(SettingsKey.launcherUsesFinderSelection) private var useFinderSelection = true
+    private var hotKeys: HotKeyManager { HotKeyManager.shared }
 
     var body: some View {
         Form {
@@ -39,8 +42,26 @@ private struct GeneralSettings: View {
             } footer: {
                 Text(footer).foregroundStyle(.secondary)
             }
-            Section("Shortcut") {
-                Toggle("Open Toolbox from any app with ⌃⌥Space", isOn: $hotKeyEnabled)
+            Section {
+                Toggle("Global shortcut", isOn: $hotKeyEnabled)
+                if hotKeyEnabled {
+                    LabeledContent("Shortcut") { ShortcutRecorder() }
+                    if hotKeys.registrationFailed {
+                        Label("macOS couldn't use this shortcut. Another app may already use it. Try a different one.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Picker("Opens", selection: $hotKeyAction) {
+                        ForEach(HotKeyAction.allCases) { Text($0.label).tag($0.rawValue) }
+                    }
+                    Toggle("Suggest tools for the files selected in Finder", isOn: $useFinderSelection)
+                        .disabled(hotKeyAction != HotKeyAction.launcher.rawValue)
+                }
+            } header: {
+                Text("Quick launcher")
+            } footer: {
+                Text("Press the shortcut in any app to search tools. When you open it from Finder, Toolbox offers tools for the selected files and hands them over. macOS asks once for permission to read the Finder selection.")
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -100,5 +121,60 @@ private struct DependencySettings: View {
         }
         .formStyle(.grouped)
         .onAppear { dependencies.refresh() }
+    }
+}
+
+/// Click, then press a key combination to set the global shortcut. Esc cancels.
+struct ShortcutRecorder: View {
+    @State private var shortcut = HotKeyShortcut.current
+    @State private var isRecording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: toggleRecording) {
+                Text(isRecording ? "Type a shortcut…" : shortcut.displayString)
+                    .font(.body.monospaced())
+                    .frame(minWidth: 130)
+            }
+            .buttonStyle(.bordered)
+            .tint(isRecording ? .accentColor : nil)
+            if !isRecording, shortcut != .default {
+                Button("Reset") {
+                    shortcut = .default
+                    shortcut.save()
+                }
+            }
+        }
+        .onDisappear(perform: stopRecording)
+    }
+
+    private func toggleRecording() {
+        isRecording ? stopRecording() : startRecording()
+    }
+
+    private func startRecording() {
+        isRecording = true
+        HotKeyManager.shared.isSuspended = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            if event.keyCode == 53, modifiers.isEmpty { // Esc
+                stopRecording()
+            } else if let recorded = HotKeyShortcut(event: event) {
+                shortcut = recorded
+                recorded.save()
+                stopRecording()
+            } else {
+                NSSound.beep()
+            }
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        isRecording = false
+        HotKeyManager.shared.isSuspended = false
     }
 }

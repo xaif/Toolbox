@@ -31,11 +31,13 @@ targets:
         NSMicrophoneUsageDescription: Toolbox uses the microphone to record audio, narrate screen recordings, and transcribe dictation.
         NSSpeechRecognitionUsageDescription: Toolbox transcribes audio on your Mac. Nothing is uploaded.
         NSScreenCaptureUsageDescription: Toolbox records your screen when you start a screen recording.
+        NSAppleEventsUsageDescription: Toolbox reads the files selected in Finder so the quick launcher can open them in a tool.
     entitlements:
       path: Toolbox/Resources/Toolbox.entitlements
       properties:
         com.apple.security.device.camera: true
         com.apple.security.device.audio-input: true
+        com.apple.security.automation.apple-events: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fiaxe.toolbox
