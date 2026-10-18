@@ -50,10 +50,19 @@ struct MainView: View {
 struct Sidebar: View {
     @Environment(AppModel.self) private var model
     @State private var collapsed: Set<ToolCategory> = []
+    private var favorites: Favorites { Favorites.shared }
 
     var body: some View {
         List(selection: selection) {
             Label("Home", systemImage: "square.grid.2x2").tag(Destination.home)
+            if !favorites.ids.isEmpty {
+                Section("Favorites") {
+                    ForEach(favorites.tools) { tool in
+                        SidebarRow(tool: tool, showsFullName: true).tag(Destination.tool(tool.id))
+                    }
+                    .onMove { favorites.move(fromOffsets: $0, toOffset: $1) }
+                }
+            }
             ForEach(ToolCategory.allCases) { category in
                 Section(isExpanded: expansion(for: category)) {
                     ForEach(ToolRegistry.tools(in: category)) { tool in
@@ -79,17 +88,19 @@ struct Sidebar: View {
 
 private struct SidebarRow: View {
     let tool: Tool
+    var showsFullName = false
     @State private var runner: JobRunner
 
-    init(tool: Tool) {
+    init(tool: Tool, showsFullName: Bool = false) {
         self.tool = tool
+        self.showsFullName = showsFullName
         _runner = State(initialValue: JobCenter.shared.runner(for: tool.id))
     }
 
     var body: some View {
         HStack {
             Label {
-                Text(tool.shortName)
+                Text(showsFullName ? tool.name : tool.shortName)
             } icon: {
                 Image(systemName: tool.symbol).foregroundStyle(tool.category.tint)
             }
@@ -98,6 +109,11 @@ private struct SidebarRow: View {
                 ProgressView(value: runner.progress)
                     .progressViewStyle(.circular)
                     .controlSize(.mini)
+            }
+        }
+        .contextMenu {
+            Button(Favorites.shared.contains(tool.id) ? "Remove from Favorites" : "Add to Favorites") {
+                Favorites.shared.toggle(tool.id)
             }
         }
     }

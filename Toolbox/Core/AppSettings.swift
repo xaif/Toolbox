@@ -31,6 +31,7 @@ enum SettingsKey {
     static let hotKeyAction = "hotkey.action"
     static let launcherUsesFinderSelection = "launcher.finderSelection"
     static let recentTools = "launcher.recentTools"
+    static let favoriteTools = "favorites.tools"
     static func customExecutablePath(_ dependency: ExternalDependency) -> String {
         "dependency.\(dependency.rawValue).path"
     }

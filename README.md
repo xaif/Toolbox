@@ -42,10 +42,11 @@ Notes:
 
 - **One window**: sidebar of tools + a home screen with search and suggestions.
   `⌘K` searches; `⌘1`–`⌘4` open the featured groups.
-- **Quick launcher** (Raycast/Spotlight-style): `⌃⌥Space` in any app opens a floating search panel.
-  `↑`/`↓` to pick, `↩` to open the tool, `⌘↩` for the main window, `esc` to close. Invoked from
-  Finder, it suggests tools for the selected files and hands them over. The shortcut is configurable
-  in Settings › General (or set it to open the main window instead).
+- **Quick launcher** (Raycast-style): `⌃⌥Space` in any app opens a floating search panel with
+  Favorites, Suggestions and every tool by category. `↑`/`↓` to pick, `↩` to open, `⌘K` for actions,
+  `⌘⇧F` to favorite, `⌘⌥↑/↓` to reorder favorites, `⌘↩` for the main window, `esc` to close.
+  Invoked from Finder, it suggests tools for the selected files and hands them over (`⌥↩` opens
+  without them). The shortcut is configurable in Settings › General.
 - **Originals untouched**: each job writes into a private staging folder. Only when the whole batch
   succeeds is it moved to a new dated folder, by default `~/Downloads/Toolbox/<Tool> <date>`.
   Change this in Settings (custom folder or ask every time).
