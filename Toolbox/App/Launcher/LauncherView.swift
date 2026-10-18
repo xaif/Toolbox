@@ -15,11 +15,15 @@ final class LauncherModel {
         let title: String
         let symbol: String
         let keys: [String]
+        /// Actions with the same group are listed together, separated from other groups by a divider.
+        let group: Int
         let perform: @MainActor () -> Void
     }
 
+    /// Text fields write their value back when they lose focus, so only react to real edits.
     var query = "" {
         didSet {
+            guard query != oldValue else { return }
             highlighted = 0
             actionsOpen = false
         }
@@ -27,6 +31,9 @@ final class LauncherModel {
     var highlighted = 0
     private(set) var actionsOpen = false
     var actionHighlighted = 0
+    var actionQuery = "" {
+        didSet { if actionQuery != oldValue { actionHighlighted = 0 } }
+    }
     private(set) var finderFiles: [URL] = []
     private(set) var isLoadingFinder = false
     private(set) var focusRequest = 0
@@ -162,52 +169,67 @@ final class LauncherModel {
     func toggleActions() {
         guard highlightedTool != nil else { return }
         actionsOpen.toggle()
+        actionQuery = ""
         actionHighlighted = 0
     }
 
     func closeActions() { actionsOpen = false }
 
     func moveAction(_ delta: Int) {
-        let count = actions.count
+        let count = visibleActions.count
         guard count > 0 else { return }
         actionHighlighted = min(max(actionHighlighted + delta, 0), count - 1)
     }
 
     func performAction(at index: Int) {
-        let list = actions
+        let list = visibleActions
         guard list.indices.contains(index) else { return }
         actionsOpen = false
         list[index].perform()
     }
 
+    /// Actions matching the "Search for actions…" field.
+    var visibleActions: [Action] {
+        let query = actionQuery.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return actions }
+        return actions.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
     var actions: [Action] {
         guard let tool = highlightedTool else { return [] }
         let launcher = LauncherController.shared
-        var list = [Action(id: "open", title: "Open \(tool.name)", symbol: "arrow.up.forward.app", keys: ["↩"]) {
+        var list = [Action(id: "open", title: "Open", symbol: "arrow.up.forward.app", keys: ["↩"], group: 0) {
             launcher.open(tool)
         }]
         if acceptedCount(for: tool) > 0 {
-            list.append(Action(id: "open-empty", title: "Open Without Selected Files", symbol: "doc", keys: ["⌥", "↩"]) {
+            list.append(Action(id: "open-empty", title: "Open Without Selected Files", symbol: "doc", keys: ["⌥", "↩"], group: 0) {
                 launcher.open(tool, withFiles: false)
             })
         }
         let isFavorite = favorites.contains(tool.id)
         list.append(Action(id: "favorite", title: isFavorite ? "Remove from Favorites" : "Add to Favorites",
-                           symbol: isFavorite ? "star.slash" : "star", keys: ["⌘", "⇧", "F"]) { [weak self] in
+                           symbol: isFavorite ? "star.slash" : "star", keys: ["⇧", "⌘", "F"], group: 1) { [weak self] in
             self?.toggleFavoriteOfHighlighted()
         })
         if isFavorite {
-            list.append(Action(id: "up", title: "Move Up in Favorites", symbol: "arrow.up", keys: ["⌘", "⌥", "↑"]) { [weak self] in
+            list.append(Action(id: "up", title: "Move Favorite Up", symbol: "arrow.up", keys: ["⌥", "⌘", "↑"], group: 1) { [weak self] in
                 self?.moveHighlightedFavorite(by: -1)
             })
-            list.append(Action(id: "down", title: "Move Down in Favorites", symbol: "arrow.down", keys: ["⌘", "⌥", "↓"]) { [weak self] in
+            list.append(Action(id: "down", title: "Move Favorite Down", symbol: "arrow.down", keys: ["⌥", "⌘", "↓"], group: 1) { [weak self] in
                 self?.moveHighlightedFavorite(by: 1)
             })
         }
-        list.append(Action(id: "window", title: "Open Toolbox Window", symbol: "macwindow", keys: ["⌘", "↩"]) {
+        list.append(Action(id: "results", title: "Show Results Folder", symbol: "folder", keys: [], group: 2) {
+            launcher.hide()
+            let folder = AppSettings.outputMode == .custom ? (AppSettings.customOutputFolder ?? OutputManager.downloadsBase)
+                                                           : OutputManager.downloadsBase
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(folder)
+        })
+        list.append(Action(id: "window", title: "Open Toolbox Window", symbol: "macwindow", keys: ["⌘", "↩"], group: 2) {
             launcher.openMainWindow()
         })
-        list.append(Action(id: "settings", title: "Toolbox Settings…", symbol: "gearshape", keys: ["⌘", ","]) {
+        list.append(Action(id: "settings", title: "Toolbox Settings…", symbol: "gearshape", keys: ["⌘", ","], group: 2) {
             launcher.openSettings()
         })
         return list
@@ -216,12 +238,28 @@ final class LauncherModel {
 
 // MARK: - View
 
+/// Colours sampled from Raycast's launcher so the panel reads the same in light and dark mode.
+private struct LauncherPalette {
+    let scheme: ColorScheme
+    var isDark: Bool { scheme == .dark }
+
+    /// Laid over the blur; mostly opaque so busy windows behind don't show through.
+    var base: Color { isDark ? Color(white: 0.13).opacity(0.88) : Color(white: 0.952).opacity(0.86) }
+    var rim: Color { isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.09) }
+    var highlight: Color { isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.075) }
+    var raised: Color { isDark ? Color(white: 0.20) : Color(white: 0.985) }
+    var raisedRim: Color { isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.07) }
+}
+
 struct LauncherView: View {
+    private enum Field { case search, actions }
+
     @Bindable var model: LauncherModel
-    @FocusState private var searchFocused: Bool
+    @FocusState private var focus: Field?
     @State private var mouseMovedSinceOpen = false
     @Environment(\.colorScheme) private var colorScheme
 
+    private var palette: LauncherPalette { LauncherPalette(scheme: colorScheme) }
     private let shape = RoundedRectangle(cornerRadius: LauncherPanel.cornerRadius, style: .circular)
 
     var body: some View {
@@ -235,11 +273,10 @@ struct LauncherView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { model.closeActions() }
-                actionsCard
+                actionsPanel
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 10)
-                    .padding(.bottom, 56)
-                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottomTrailing)))
+                    .padding(8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottomTrailing)))
             }
         }
         .animation(.easeOut(duration: 0.12), value: model.actionsOpen)
@@ -247,17 +284,17 @@ struct LauncherView: View {
         .background {
             ZStack {
                 LauncherBackground(cornerRadius: LauncherPanel.cornerRadius)
-                // A light veil gives the frosted, Raycast-like tone over dark content.
-                colorScheme == .dark ? Color.black.opacity(0.10) : Color.white.opacity(0.28)
+                palette.base
             }
         }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.45), lineWidth: 1))
-        .onAppear { searchFocused = true }
+        .overlay(shape.strokeBorder(palette.rim, lineWidth: 1))
+        .onAppear { focus = .search }
         .onChange(of: model.focusRequest) {
-            searchFocused = true
+            focus = .search
             mouseMovedSinceOpen = false
         }
+        .onChange(of: model.actionsOpen) { focus = model.actionsOpen ? .actions : .search }
     }
 
     // MARK: Search bar
@@ -270,19 +307,11 @@ struct LauncherView: View {
             TextField("Search for tools…", text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 20))
-                .focused($searchFocused)
-                .onKeyPress(.downArrow) {
-                    model.actionsOpen ? model.moveAction(1) : model.move(1)
-                    return .handled
-                }
-                .onKeyPress(.upArrow) {
-                    model.actionsOpen ? model.moveAction(-1) : model.move(-1)
-                    return .handled
-                }
+                .focused($focus, equals: .search)
+                .onKeyPress(.downArrow) { model.move(1); return .handled }
+                .onKeyPress(.upArrow) { model.move(-1); return .handled }
                 .onKeyPress(.return, phases: .down) { press in
-                    if model.actionsOpen {
-                        model.performAction(at: model.actionHighlighted)
-                    } else if press.modifiers.contains(.command) {
+                    if press.modifiers.contains(.command) {
                         LauncherController.shared.openMainWindow()
                     } else if let tool = model.highlightedTool {
                         LauncherController.shared.open(tool, withFiles: !press.modifiers.contains(.option))
@@ -290,9 +319,7 @@ struct LauncherView: View {
                     return .handled
                 }
                 .onKeyPress(.escape) {
-                    if model.actionsOpen { model.closeActions() }
-                    else if !model.query.isEmpty { model.query = "" }
-                    else { LauncherController.shared.hide() }
+                    if !model.query.isEmpty { model.query = "" } else { LauncherController.shared.hide() }
                     return .handled
                 }
             Spacer(minLength: 0)
@@ -327,7 +354,7 @@ struct LauncherView: View {
         .font(.system(size: 13))
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Color.accentColor.opacity(0.15), in: Capsule())
+        .background(Color.accentColor.opacity(0.13), in: Capsule())
         .foregroundStyle(Color.accentColor)
         .fixedSize()
         .help("Selected in Finder. The tool you open gets these files.")
@@ -384,9 +411,10 @@ struct LauncherView: View {
                                 .padding(.horizontal, 10)
                                 .padding(.top, isFirst ? 2 : 14)
                                 .padding(.bottom, 6)
+                                .id(row.id)
                         case .tool(let tool, let index):
                             LauncherRow(tool: tool, isHighlighted: index == model.highlighted,
-                                        fileCount: model.acceptedCount(for: tool))
+                                        fileCount: model.acceptedCount(for: tool), highlight: palette.highlight)
                                 .id(row.id)
                                 .onTapGesture { LauncherController.shared.open(tool) }
                                 .onContinuousHover { phase in
@@ -410,9 +438,12 @@ struct LauncherView: View {
                 }
             }
             .onChange(of: model.highlighted) {
-                if let tool = model.highlightedTool { proxy.scrollTo("tool:\(tool.id)") }
+                // Keep the first section's header visible when the top row is selected.
+                if model.highlighted == 0 { proxy.scrollTo(rows.first?.id, anchor: .top) }
+                else if let tool = model.highlightedTool { proxy.scrollTo("tool:\(tool.id)") }
             }
             .onChange(of: model.query) { proxy.scrollTo(rows.first?.id, anchor: .top) }
+            .onChange(of: model.focusRequest) { proxy.scrollTo(rows.first?.id, anchor: .top) }
         }
     }
 
@@ -426,8 +457,8 @@ struct LauncherView: View {
                 Divider()
                 Button("Quit Toolbox") { NSApp.terminate(nil) }
             } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 14, weight: .medium))
+                Image(systemName: "equal")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 38, height: 38)
                     .contentShape(Circle())
@@ -436,72 +467,117 @@ struct LauncherView: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
-            .glassEffect(.regular, in: Circle())
+            .background(raisedSurface(Circle()))
 
             Spacer()
 
-            HStack(spacing: 12) {
-                Button { if let tool = model.highlightedTool { LauncherController.shared.open(tool) } } label: {
-                    HStack(spacing: 7) {
-                        Text("Open Tool").fontWeight(.medium)
-                        KeyCap("↩")
+            if !model.actionsOpen {
+                HStack(spacing: 12) {
+                    Button { if let tool = model.highlightedTool { LauncherController.shared.open(tool) } } label: {
+                        HStack(spacing: 7) {
+                            Text("Open Tool").fontWeight(.medium)
+                            KeyCap("↩")
+                        }
                     }
-                }
-                .buttonStyle(.plain)
-                Rectangle().fill(.separator).frame(width: 1, height: 16)
-                Button { model.toggleActions() } label: {
-                    HStack(spacing: 7) {
-                        Text("Actions").foregroundStyle(.secondary)
-                        KeyCap("⌘")
-                        KeyCap("K")
+                    .buttonStyle(.plain)
+                    Rectangle().fill(.separator).frame(width: 1, height: 16)
+                    Button { model.toggleActions() } label: {
+                        HStack(spacing: 7) {
+                            Text("Actions").foregroundStyle(.secondary)
+                            KeyCap("⌘")
+                            KeyCap("K")
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 16)
+                .frame(height: 38)
+                .background(raisedSurface(Capsule()))
             }
-            .font(.system(size: 13))
-            .padding(.horizontal, 16)
-            .frame(height: 38)
-            .glassEffect(.regular, in: Capsule())
         }
         .padding(10)
     }
 
-    // MARK: Actions
+    /// The near-white floating surface used by the footer controls and the actions panel.
+    private func raisedSurface<S: InsettableShape>(_ shape: S) -> some View {
+        shape
+            .fill(palette.raised.opacity(0.94))
+            .background(.regularMaterial, in: shape)
+            .overlay(shape.strokeBorder(palette.raisedRim))
+            .shadow(color: .black.opacity(palette.isDark ? 0.3 : 0.08), radius: 8, y: 2)
+    }
 
-    private var actionsCard: some View {
-        VStack(alignment: .leading, spacing: 1) {
+    // MARK: Actions (⌘K)
+
+    private var actionsPanel: some View {
+        let actions = model.visibleActions
+        return VStack(alignment: .leading, spacing: 0) {
             if let tool = model.highlightedTool {
                 Text(tool.name)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
             }
-            ForEach(Array(model.actions.enumerated()), id: \.element.id) { index, action in
-                HStack(spacing: 10) {
-                    Image(systemName: action.symbol)
-                        .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                if actions.isEmpty {
+                    Text("No matching actions")
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                    Text(action.title)
-                    Spacer(minLength: 12)
-                    HStack(spacing: 3) { ForEach(action.keys, id: \.self) { KeyCap($0) } }
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
                 }
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(index == model.actionHighlighted ? Color.primary.opacity(0.1) : .clear,
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .contentShape(Rectangle())
-                .onTapGesture { model.performAction(at: index) }
-                .onHover { if $0 { model.actionHighlighted = index } }
+                ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                    if index > 0, actions[index - 1].group != action.group {
+                        Divider().padding(.horizontal, 6).padding(.vertical, 5)
+                    }
+                    actionRow(action, isHighlighted: index == model.actionHighlighted)
+                        .onTapGesture { model.performAction(at: index) }
+                        .onHover { if $0 { model.actionHighlighted = index } }
+                }
             }
+            .padding(.horizontal, 6)
+            .padding(.bottom, 6)
+            Divider()
+            TextField("Search for actions…", text: $model.actionQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused($focus, equals: .actions)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .onKeyPress(.downArrow) { model.moveAction(1); return .handled }
+                .onKeyPress(.upArrow) { model.moveAction(-1); return .handled }
+                .onKeyPress(.return, phases: .down) { _ in
+                    model.performAction(at: model.actionHighlighted)
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    if model.actionQuery.isEmpty { model.closeActions() } else { model.actionQuery = "" }
+                    return .handled
+                }
         }
-        .padding(6)
-        .frame(width: 330)
-        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
-        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+        .frame(width: 350)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.raised))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.raisedRim))
+        .shadow(color: .black.opacity(palette.isDark ? 0.35 : 0.14), radius: 18, y: 6)
+    }
+
+    private func actionRow(_ action: LauncherModel.Action, isHighlighted: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: action.symbol)
+                .font(.system(size: 13))
+                .frame(width: 18)
+            Text(action.title)
+            Spacer(minLength: 12)
+            HStack(spacing: 3) { ForEach(action.keys, id: \.self) { KeyCap($0) } }
+        }
+        .font(.system(size: 14))
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(isHighlighted ? palette.highlight : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(Rectangle())
     }
 }
 
@@ -509,6 +585,7 @@ private struct LauncherRow: View {
     let tool: Tool
     let isHighlighted: Bool
     let fileCount: Int
+    let highlight: Color
 
     var body: some View {
         HStack(spacing: 11) {
@@ -522,18 +599,13 @@ private struct LauncherRow: View {
             Spacer(minLength: 8)
             if fileCount > 0 {
                 Text(fileCount == 1 ? "1 file" : "\(fileCount) files")
-                    .font(.system(size: 13.5))
-                    .foregroundStyle(Color.accentColor)
-            } else {
-                Text("Tool")
-                    .font(.system(size: 13.5))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 40)
-        .background(isHighlighted ? Color.primary.opacity(0.1) : .clear,
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(height: 38)
+        .background(isHighlighted ? highlight : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(Rectangle())
     }
 }
@@ -549,8 +621,8 @@ private struct KeyCap: View {
             .foregroundStyle(.secondary)
             .frame(minWidth: 18, minHeight: 18)
             .padding(.horizontal, key.count > 1 ? 4 : 0)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.primary.opacity(0.14)))
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.primary.opacity(0.13)))
     }
 }
 
