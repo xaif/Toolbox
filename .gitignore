@@ -5,3 +5,6 @@ DerivedData/
 .DS_Store
 xcuserdata/
 *.xcuserstate
+
+# Claude Code local state and agent worktrees
+.claude/

@@ -14,6 +14,15 @@ struct MainView: View {
         }
         .onAppear {
             model.openMainWindow = { openWindow(id: "main") }
+            #if DEBUG
+            // Development hook: `open Toolbox.app --args -debugOpenTool video.compress -debugInputs /a.mp4,/b.mp4`
+            if let id = UserDefaults.standard.string(forKey: "debugOpenTool"), ToolRegistry.tool(id) != nil {
+                let inputs = (UserDefaults.standard.string(forKey: "debugInputs") ?? "")
+                    .split(separator: ",").map { URL(fileURLWithPath: String($0)) }
+                JobCenter.shared.runner(for: id).inputs = inputs
+                model.open(.tool(id))
+            }
+            #endif
         }
     }
 

@@ -35,15 +35,31 @@ enum FFmpeg {
         let ffmpeg = try Dependencies.require(.ffmpeg)
         let base = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-progress", "pipe:1", "-nostats"]
         let total = duration ?? 0
-        try await ProcessRunner.runChecked(ffmpeg, arguments: base + arguments, onStdoutLine: { line in
-            guard total > 0, let progress else { return }
-            // -progress emits key=value lines; out_time_us is the encoded position in microseconds.
-            if line.hasPrefix("out_time_us="), let micros = Double(line.dropFirst("out_time_us=".count)) {
-                progress(min(max(micros / 1_000_000 / total, 0), 1))
-            } else if line == "progress=end" {
-                progress(1)
-            }
-        })
+        do {
+            try await ProcessRunner.runChecked(ffmpeg, arguments: base + arguments, onStdoutLine: { line in
+                guard total > 0, let progress else { return }
+                // -progress emits key=value lines; out_time_us is the encoded position in microseconds.
+                if line.hasPrefix("out_time_us="), let micros = Double(line.dropFirst("out_time_us=".count)) {
+                    progress(min(max(micros / 1_000_000 / total, 0), 1))
+                } else if line == "progress=end" {
+                    progress(1)
+                }
+            })
+        } catch ToolError.processFailed(let program, let status, let message) {
+            throw ToolError.processFailed(program: program, status: status, message: cleanErrorMessage(message))
+        }
+    }
+
+    /// Strips FFmpeg's "[component @ 0x…]" prefixes and duplicate lines so errors read cleanly.
+    static func cleanErrorMessage(_ message: String) -> String {
+        var seen = Set<String>()
+        let lines = message.split(whereSeparator: \.isNewline).compactMap { raw -> String? in
+            let line = raw.replacingOccurrences(of: #"^\[[^\]]+ @ 0x[0-9a-f]+\]\s*"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, seen.insert(line.lowercased()).inserted else { return nil }
+            return line
+        }
+        return lines.suffix(2).joined(separator: "\n")
     }
 
     /// Reads duration, dimensions and stream info.
