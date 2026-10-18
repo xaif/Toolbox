@@ -4,7 +4,7 @@ enum VideoTools {
     static let all: [Tool] = [
         Tool(id: "video.record-screen", name: "Record Screen", category: .video, symbol: "record.circle",
              summary: "Record a display, window or area with camera, then zoom, trim and caption.",
-             keywords: ["screen recording", "capture", "screencast", "webcam", "camera", "zoom", "studio"]) { PlaceholderToolView(tool: $0) },
+             keywords: ["screen recording", "capture", "screencast", "webcam", "camera", "zoom", "studio"]) { RecordScreenView(tool: $0) },
         Tool(id: "video.download", name: "Download Video", shortName: "Download", category: .video, symbol: "arrow.down.circle",
              summary: "Save a video from a link to your Mac.",
              keywords: ["youtube", "url", "link", "save", "yt-dlp"], requirements: [.ytdlp, .ffmpeg]) { PlaceholderToolView(tool: $0) },
