@@ -348,8 +348,15 @@ struct AISpeechModelStatus: View {
     private func refresh() async {
         guard !identifier.isEmpty else { return }
         error = nil
-        let module = SpeechTranscriber(locale: Locale(identifier: identifier), preset: .transcription)
-        status = await AssetInventory.status(forModules: [module])
+        let locale = Locale(identifier: identifier)
+        let module = SpeechTranscriber(locale: locale, preset: .transcription)
+        var current = await AssetInventory.status(forModules: [module])
+        // status(forModules:) can report .supported for models that are already installed system-wide.
+        if current == .supported,
+           await SpeechTranscriber.installedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
+            current = .installed
+        }
+        status = current
         if status == .downloading {
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled { await refresh() }
