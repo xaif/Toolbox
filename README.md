@@ -11,6 +11,7 @@ Requirements: Xcode 26+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`bre
 scripts/build.sh            # compile check (unsigned)
 scripts/build.sh --sign     # signed Debug build
 scripts/build.sh --release  # signed Release build
+scripts/release.sh          # Developer ID–signed, notarized DMG (see script header)
 xcodegen generate && open Toolbox.xcodeproj   # work in Xcode
 ```
 
@@ -19,6 +20,23 @@ The Xcode project is generated from `project.yml` and is not committed.
 FFmpeg and yt-dlp are **not bundled**. Video/audio tools need FFmpeg; Download Video needs yt-dlp.
 The app finds Homebrew installs automatically and offers one-click `brew install` otherwise
 (Settings › Dependencies). Image, PDF, OCR and transcription tools need nothing extra.
+
+## Tools (41)
+
+| Category | Tools |
+|---|---|
+| Video (13) | Record Screen (studio: display/window/area, camera bubble, auto-zoom on clicks, trim, captions), Download, Compress, Convert, Trim, Resize, Crop & Rotate, Change Speed, Merge, Mute, Replace Audio, Burn In Subtitles, Video to GIF |
+| Audio (5) | Record, Trim, Clean Up (noise removal + loudness), Extract, Convert |
+| Images (6) | Convert, Compress, Resize, Rotate, Remove Background (Vision), Remove Metadata |
+| PDF (11) | Merge, Split, Organize, Delete Pages, Extract Pages, Compress, Sign, Add Password, Remove Password, Images to PDF, PDF to Images |
+| On-device AI (5) | Transcribe (SpeechAnalyzer → TXT/SRT/VTT), Dictation, Extract Text (Vision OCR), Summarize (Foundation Models), Translate (Translation framework) |
+| Files (1) | Batch Rename (copies by default, or in place with undo) |
+
+Notes:
+- Summarize needs Apple Intelligence enabled on a supported Mac; the tool explains when it isn't available.
+- Speech and translation models are one-time system downloads; the tools offer to download them.
+- Download Video depends on a current yt-dlp (sites change often). The tool has an "Update yt-dlp" button.
+- Homebrew's FFmpeg has no libass, so subtitles and captions are rendered with AVFoundation instead.
 
 ## How it works
 
