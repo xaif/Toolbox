@@ -1,3 +1,5 @@
+<img src="Toolbox/Resources/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="128" height="128" alt="Toolbox app icon: a magnifying glass around code brackets">
+
 # Toolbox
 
 A native macOS app (SwiftUI, macOS 26+) with 84 tools for media, photos, PDFs, documents,

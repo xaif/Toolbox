@@ -18,12 +18,19 @@ xcodebuild -project Toolbox.xcodeproj -scheme Toolbox -configuration Release \
   -quiet build
 codesign --verify --deep --strict "$app"
 
-# Finder shows the app next to an Applications shortcut to drag it onto.
+# Finder shows the app next to an Applications shortcut to drag it onto. The mounted disk wears the app icon.
 staging=$(mktemp -d)
 ditto "$app" "$staging/Toolbox.app"
 ln -s /Applications "$staging/Applications"
+cp "$app/Contents/Resources/AppIcon.icns" "$staging/.VolumeIcon.icns"
+writable="$(mktemp -d)/Toolbox.dmg"
+hdiutil create -volname "Toolbox $version" -srcfolder "$staging" -fs HFS+ -format UDRW -quiet "$writable"
+mountpoint=$(mktemp -d)
+hdiutil attach "$writable" -nobrowse -noautoopen -mountpoint "$mountpoint" -quiet
+xcrun SetFile -a C "$mountpoint" || echo "warning: couldn't set the disk icon"
+hdiutil detach "$mountpoint" -quiet
 rm -f "$dmg"
-hdiutil create -volname "Toolbox $version" -srcfolder "$staging" -fs HFS+ -format UDZO -quiet "$dmg"
-rm -rf "$staging"
+hdiutil convert "$writable" -format UDZO -quiet -o "$dmg"
+rm -rf "$staging" "$(dirname "$writable")" "$mountpoint"
 
 echo "Built $dmg ($(lipo -archs "$app/Contents/MacOS/Toolbox"), version $version)"

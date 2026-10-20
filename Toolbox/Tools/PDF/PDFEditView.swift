@@ -727,8 +727,8 @@ private struct PDFEditCanvas: View {
 
             if let line = model.hoverLine, model.mode == .editText {
                 let rect = frame(line, in: size)
-                Rectangle().fill(Color.accentColor.opacity(0.12))
-                    .overlay(Rectangle().strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 1))
+                Rectangle().fill(Color.documentMarkup.opacity(0.12))
+                    .overlay(Rectangle().strokeBorder(Color.documentMarkup.opacity(0.6), lineWidth: 1))
                     .frame(width: rect.width + 4, height: rect.height + 4)
                     .offset(x: rect.minX - 2, y: rect.minY - 2)
                     .allowsHitTesting(false)
@@ -745,7 +745,7 @@ private struct PDFEditCanvas: View {
                 let rect = frame(band, in: size)
                 Rectangle()
                     .fill(model.mode == .whiteout ? Color.white.opacity(0.85) : (model.boxFilled ? Color(cgColor: model.boxColor).opacity(0.5) : .clear))
-                    .overlay(Rectangle().strokeBorder(model.mode == .whiteout ? Color.accentColor : Color(cgColor: model.boxColor),
+                    .overlay(Rectangle().strokeBorder(model.mode == .whiteout ? Color.documentMarkup : Color(cgColor: model.boxColor),
                                                       style: StrokeStyle(lineWidth: 1.5, dash: model.mode == .whiteout ? [4, 3] : [])))
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
@@ -787,7 +787,7 @@ private struct PDFEditCanvas: View {
         .foregroundStyle(Color(cgColor: item.style.color))
         .multilineTextAlignment(alignment)
         .background(item.isReplacement ? Color.clear : Color.white.opacity(0.55))
-        .overlay(Rectangle().strokeBorder(Color.accentColor, lineWidth: 1).padding(-2))
+        .overlay(Rectangle().strokeBorder(Color.documentMarkup, lineWidth: 1).padding(-2))
         .focused($focusedEditor, equals: item.id)
         .onSubmit { model.endEditing() }
         .id(item.id)
@@ -842,9 +842,9 @@ private struct PDFEditItemHandle: View {
             .frame(width: max(frame.width, 6), height: max(frame.height, 6))
             .overlay {
                 if selected {
-                    Rectangle().strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])).padding(-2)
+                    Rectangle().strokeBorder(Color.documentMarkup, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])).padding(-2)
                 } else if hovering {
-                    Rectangle().strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1).padding(-2)
+                    Rectangle().strokeBorder(Color.documentMarkup.opacity(0.5), lineWidth: 1).padding(-2)
                 }
             }
             .contentShape(Rectangle())
@@ -900,7 +900,7 @@ private struct PDFEditItemHandle: View {
 
     private var resizeHandle: some View {
         Circle()
-            .fill(Color.accentColor)
+            .fill(Color.documentMarkup)
             .overlay(Circle().strokeBorder(.white, lineWidth: 2))
             .frame(width: 14, height: 14)
             .offset(x: 9, y: 9)

@@ -283,7 +283,7 @@ private struct AppDragRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(nsImage: NSApp.applicationIconImage)
+            Image(nsImage: AppInfo.icon)
                 .resizable()
                 .frame(width: 34, height: 34)
             Text(AppInfo.name)
@@ -309,7 +309,7 @@ private struct AppDragRow: View {
     /// What follows the pointer: the same row on a solid background, so it reads over any window.
     private var dragPreview: some View {
         HStack(spacing: 12) {
-            Image(nsImage: NSApp.applicationIconImage)
+            Image(nsImage: AppInfo.icon)
                 .resizable()
                 .frame(width: 34, height: 34)
             Text(AppInfo.name)
@@ -393,7 +393,7 @@ private final class AppDragSourceView: NSView, NSDraggingSource {
 
         let item = NSDraggingItem(pasteboardWriter: Bundle.main.bundleURL as NSURL)
         let scale = window?.backingScaleFactor ?? 2
-        guard let image = makePreview?(scale) ?? NSApp.applicationIconImage else { return }
+        let image = makePreview?(scale) ?? AppInfo.icon
         // Keep the preview under the pointer where the row was grabbed.
         let grab = convert(start, from: nil)
         let origin = NSPoint(x: grab.x - min(grab.x, image.size.width - 20), y: bounds.midY - image.size.height / 2)

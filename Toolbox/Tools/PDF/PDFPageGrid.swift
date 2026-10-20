@@ -285,7 +285,7 @@ struct PDFPageGrid: View {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .font(.title2)
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, selected ? Color.accentColor : Color.secondary.opacity(0.6))
+                        .foregroundStyle(.white, selected ? Color.documentMarkup : Color.secondary.opacity(0.6))
                         .padding(4)
                 }
             }
@@ -368,7 +368,7 @@ private struct PDFReorderModifier: ViewModifier {
                         .overlay(alignment: .topTrailing) {
                             if model.selection.contains(item.id), model.selection.count > 1 {
                                 Text("\(model.selection.count)").font(.caption.bold()).foregroundStyle(.white)
-                                    .padding(5).background(Circle().fill(Color.accentColor))
+                                    .padding(5).background(Circle().fill(Color.documentMarkup))
                             }
                         }
                 }

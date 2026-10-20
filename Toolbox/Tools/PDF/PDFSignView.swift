@@ -187,7 +187,7 @@ struct PDFSignView: View {
                                 .padding(8)
                                 .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
                                 .overlay(RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(active ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: active ? 2.5 : 1))
+                                    .strokeBorder(active ? Color.documentMarkup : Color.secondary.opacity(0.25), lineWidth: active ? 2.5 : 1))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -332,7 +332,7 @@ private struct PDFPlacementView: View {
             .frame(width: rect.width, height: rect.height)
             .overlay {
                 if selected {
-                    Rectangle().strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                    Rectangle().strokeBorder(Color.documentMarkup, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
                 }
             }
             .contentShape(Rectangle())
@@ -370,7 +370,7 @@ private struct PDFPlacementView: View {
 
     private var resizeHandle: some View {
         Circle()
-            .fill(Color.accentColor)
+            .fill(Color.documentMarkup)
             .overlay(Circle().strokeBorder(.white, lineWidth: 2))
             .frame(width: 14, height: 14)
             .offset(x: 7, y: 7)

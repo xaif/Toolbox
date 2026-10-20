@@ -25,7 +25,6 @@ final class LauncherModel {
         let id: String
         let title: String
         var subtitle: String?
-        let symbol: String
         /// What ↩ does, shown in the action bar.
         let actionTitle: String
         /// Searched along with the title.
@@ -273,7 +272,7 @@ final class LauncherModel {
         var list: [Command] = []
         if updater.hasUpdate, let update = updater.update { list.append(updateCommand(update)) }
         list.append(Command(id: "check-for-updates", title: "Check for Updates", subtitle: "Toolbox \(updater.currentVersion)",
-                            symbol: "arrow.triangle.2.circlepath", actionTitle: "Check Now",
+                            actionTitle: "Check Now",
                             keywords: ["update", "upgrade", "version", "new", "changelog", "release", "toolbox"]) {
             UpdateWindowController.shared.show(check: true)
         })
@@ -282,7 +281,7 @@ final class LauncherModel {
 
     private func updateCommand(_ update: AppUpdate) -> Command {
         Command(id: "install-update", title: "Update to Toolbox \(update.version)", subtitle: "See what's new",
-                symbol: "arrow.down.circle", actionTitle: "See What's New",
+                actionTitle: "See What's New",
                 keywords: ["update", "upgrade", "install", "version", "new", "changelog", "release"]) {
             UpdateWindowController.shared.show()
         }
@@ -1160,7 +1159,7 @@ struct LauncherView: View {
     }
 }
 
-/// A row for one of Toolbox's own commands.
+/// A row for one of Toolbox's own commands, with the app icon, like Raycast's own commands.
 private struct LauncherCommandRow: View {
     let command: LauncherModel.Command
     let isHighlighted: Bool
@@ -1168,7 +1167,10 @@ private struct LauncherCommandRow: View {
 
     var body: some View {
         HStack(spacing: 11) {
-            ToolIcon(symbol: command.symbol, tint: .accentColor, size: 22)
+            Image(nsImage: AppInfo.icon)
+                .resizable()
+                .frame(width: 24, height: 24)
+                .padding(-1)
             Text(command.title)
                 .font(.system(size: 14))
                 .foregroundStyle(.primary)

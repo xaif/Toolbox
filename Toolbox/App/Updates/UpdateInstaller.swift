@@ -168,6 +168,10 @@ enum UpdateInstaller {
       rm -rf "$staged"
     fi
     xattr -dr com.apple.quarantine "$target" 2>/dev/null
+    # A fresh date and registration make Finder and the Dock pick up a changed icon.
+    touch "$target"
+    lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    [ -x "$lsregister" ] && "$lsregister" -f "$target" >/dev/null 2>&1
     [ "$relaunch" = 1 ] && open "$target"
     exit 0
     """#

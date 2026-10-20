@@ -11,6 +11,7 @@ enum WhiteboardPage {
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>Whiteboard</title>
+    \#(BrandMark.faviconLinks)
     <style>
     :root { --bar:#f2f2f5; --text:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.1); --accent:#0a7cff; --page:#e6e6ea; }
     @media (prefers-color-scheme: dark) { :root { --bar:#1c1c1f; --text:#f5f5f7; --muted:#9a9aa0; --line:rgba(255,255,255,.12); --accent:#3d9bff; --page:#0d0d0f; } }

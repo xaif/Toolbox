@@ -376,15 +376,15 @@ private struct ScanCropEditor: View {
                     path.addLines(ScanQuad.Corner.allCases.map { point(shown[$0], in: frame) })
                     path.closeSubpath()
                 }
-                .fill(Color.accentColor.opacity(0.12))
+                .fill(Color.documentMarkup.opacity(0.12))
                 Path { path in
                     path.addLines(ScanQuad.Corner.allCases.map { point(shown[$0], in: frame) })
                     path.closeSubpath()
                 }
-                .stroke(Color.accentColor, lineWidth: 2)
+                .stroke(Color.documentMarkup, lineWidth: 2)
                 ForEach(ScanQuad.Corner.allCases, id: \.self) { corner in
                     Circle()
-                        .fill(Color.accentColor)
+                        .fill(Color.documentMarkup)
                         .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                         .frame(width: 18, height: 18)
                         .contentShape(Circle().inset(by: -8))
@@ -651,7 +651,7 @@ private struct ScanCameraSheet: View {
                                 })
                                 path.closeSubpath()
                             }
-                            .fill(Color.accentColor.opacity(0.2))
+                            .fill(Color.documentMarkup.opacity(0.2))
                             .overlay {
                                 Path { path in
                                     path.addLines(ScanQuad.Corner.allCases.map {
@@ -659,7 +659,7 @@ private struct ScanCameraSheet: View {
                                     })
                                     path.closeSubpath()
                                 }
-                                .stroke(Color.accentColor, lineWidth: 3)
+                                .stroke(Color.documentMarkup, lineWidth: 3)
                             }
                         }
                     }

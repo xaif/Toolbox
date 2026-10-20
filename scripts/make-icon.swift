@@ -1,8 +1,22 @@
 // Renders the app icon PNGs into the asset catalog. Run: swift scripts/make-icon.swift
+// The mark is Lucide's "search-code" (a magnifying glass around code brackets) in near-white on a dark
+// gradient tile, laid out on the macOS icon grid. BrandMark.swift draws the same glyph inside the app.
 import AppKit
 
 let out = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1]
     : "Toolbox/Resources/Assets.xcassets/AppIcon.appiconset")
+
+/// The glyph's strokes in Lucide's 24-unit space, y pointing down.
+let glyphLines: [[CGPoint]] = [
+    [CGPoint(x: 9, y: 9), CGPoint(x: 7, y: 11), CGPoint(x: 9, y: 13)],    // <
+    [CGPoint(x: 13, y: 13), CGPoint(x: 15, y: 11), CGPoint(x: 13, y: 9)], // >
+    [CGPoint(x: 21, y: 21), CGPoint(x: 16.7, y: 16.7)],                    // handle
+]
+let glyphCircle = (center: CGPoint(x: 11, y: 11), radius: CGFloat(8))
+
+func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGColor {
+    CGColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1)
+}
 
 func render(_ px: Int) -> Data {
     let s = CGFloat(px)
@@ -20,35 +34,31 @@ func render(_ px: Int) -> Data {
     ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.012), blur: s * 0.03, color: NSColor.black.withAlphaComponent(0.3).cgColor)
     ctx.addPath(path); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
     ctx.restoreGState()
+
+    // A dark tile, a little lighter at the top left (the design's 135° gradient).
+    ctx.saveGState()
     ctx.addPath(path); ctx.clip()
-    let colors = [NSColor(red: 0.47, green: 0.42, blue: 1.0, alpha: 1).cgColor,
-                  NSColor(red: 0.93, green: 0.30, blue: 0.55, alpha: 1).cgColor,
-                  NSColor(red: 0.99, green: 0.60, blue: 0.25, alpha: 1).cgColor] as CFArray
-    let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.6, 1])!
+    let colors = [rgb(32, 33, 35), rgb(21, 21, 21), rgb(13, 13, 14)] as CFArray
+    let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: [0, 0.35, 1])!
     ctx.drawLinearGradient(gradient, start: CGPoint(x: body.minX, y: body.maxY), end: CGPoint(x: body.maxX, y: body.minY), options: [])
-    // Soft top highlight.
-    let shine = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                           colors: [NSColor.white.withAlphaComponent(0.25).cgColor, NSColor.white.withAlphaComponent(0).cgColor] as CFArray,
-                           locations: [0, 1])!
-    ctx.drawLinearGradient(shine, start: CGPoint(x: 0, y: body.maxY), end: CGPoint(x: 0, y: body.midY), options: [])
-    // 2x2 grid of tool glyphs.
-    let symbols = ["film.fill", "waveform", "doc.richtext.fill", "sparkles"]
-    let cell = body.width * 0.30
-    let gap = body.width * 0.06
-    let originX = body.midX - cell - gap / 2
-    let originY = body.midY - cell - gap / 2
-    for (i, name) in symbols.enumerated() {
-        let col = CGFloat(i % 2), row = CGFloat(1 - i / 2)
-        let rect = CGRect(x: originX + col * (cell + gap), y: originY + row * (cell + gap), width: cell, height: cell)
-        let tile = CGPath(roundedRect: rect, cornerWidth: cell * 0.26, cornerHeight: cell * 0.26, transform: nil)
-        ctx.addPath(tile); ctx.setFillColor(NSColor.white.withAlphaComponent(0.22).cgColor); ctx.fillPath()
-        let config = NSImage.SymbolConfiguration(pointSize: cell * 0.48, weight: .semibold)
-            .applying(.init(paletteColors: [.white]))
-        if let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-            let size = image.size
-            image.draw(in: CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
-        }
+    ctx.restoreGState()
+
+    // The glyph fills 360/488 of the tile, centered, with Lucide's 2-unit round strokes.
+    let box = body.width * 360 / 488
+    let scale = box / 24
+    let origin = CGPoint(x: body.midX - box / 2, y: body.midY + box / 2)
+    func point(_ p: CGPoint) -> CGPoint { CGPoint(x: origin.x + p.x * scale, y: origin.y - p.y * scale) }
+    ctx.setStrokeColor(rgb(250, 250, 250))
+    ctx.setLineWidth(max(2 * scale, px <= 32 ? 1.3 : 0))
+    ctx.setLineCap(.round)
+    ctx.setLineJoin(.round)
+    for line in glyphLines {
+        ctx.addLines(between: line.map(point))
     }
+    let center = point(glyphCircle.center)
+    ctx.addEllipse(in: CGRect(x: center.x - glyphCircle.radius * scale, y: center.y - glyphCircle.radius * scale,
+                              width: glyphCircle.radius * 2 * scale, height: glyphCircle.radius * 2 * scale))
+    ctx.strokePath()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
 }

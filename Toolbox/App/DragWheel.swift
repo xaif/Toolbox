@@ -236,7 +236,7 @@ private final class WheelDropView: NSView {
             NSColor.separatorColor.setStroke(); shape.lineWidth = 0.6; shape.stroke()
             let radians = angle * .pi/180
             let point = CGPoint(x: center.x+cos(radians)*118, y: center.y+sin(radians)*118)
-            let color = selected == index ? NSColor.white : NSColor.labelColor
+            let color = selected == index ? NSColor.onAccent : NSColor.labelColor
             let symbol = NSImage(systemSymbolName: item.symbol, accessibilityDescription: item.title)?.withSymbolConfiguration(.init(pointSize: 18, weight: .medium))
             symbol?.lockFocus(); color.set(); NSRect(origin: .zero, size: symbol?.size ?? .zero).fill(using: .sourceAtop); symbol?.unlockFocus()
             symbol?.draw(in: NSRect(x: point.x-11, y: point.y+2, width: 22, height: 22))

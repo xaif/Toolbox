@@ -119,6 +119,10 @@ enum PermissionState: Equatable {
 
 enum AppInfo {
     static let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Toolbox"
+
+    /// The icon from the app's own asset catalog. `NSApp.applicationIconImage` comes from the system's icon
+    /// cache, which can show the previous icon for a while after an update.
+    @MainActor static var icon: NSImage { NSImage(named: "AppIcon") ?? NSApp.applicationIconImage }
 }
 
 /// Tracks and requests Toolbox's privacy permissions. While something is watching (onboarding, the System

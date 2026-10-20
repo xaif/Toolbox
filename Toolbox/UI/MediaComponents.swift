@@ -80,7 +80,7 @@ struct RangeSlider: View {
         RoundedRectangle(cornerRadius: 4)
             .fill(tint)
             .frame(width: handleWidth)
-            .overlay(Capsule().fill(.white.opacity(0.9)).frame(width: 2, height: 14))
+            .overlay(Capsule().fill(Color.onAccent.opacity(0.9)).frame(width: 2, height: 14))
             .contentShape(Rectangle().inset(by: -6))
             .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
     }

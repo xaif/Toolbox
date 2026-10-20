@@ -11,6 +11,7 @@ enum WiFiSharePage {
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>Shared from a Mac</title>
+    \#(BrandMark.faviconLinks)
     <style>
     :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.08); --accent:#0a7cff; --ok:#1f9d55; --bad:#d93025; }
     @media (prefers-color-scheme: dark) { :root { --bg:#111113; --card:#1c1c1f; --text:#f5f5f7; --muted:#9a9aa0; --line:rgba(255,255,255,.1); --accent:#3d9bff; } }

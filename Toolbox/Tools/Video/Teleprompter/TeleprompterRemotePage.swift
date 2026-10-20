@@ -12,6 +12,7 @@ enum TeleprompterRemotePage {
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#000000">
     <title>Teleprompter Remote</title>
+    \#(BrandMark.faviconLinks)
     <style>
     :root { --bg:#000; --card:#1c1c1e; --line:rgba(255,255,255,.12); --text:#f5f5f7; --muted:#98989f; --accent:#30d158; --warn:#ff9f0a; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }

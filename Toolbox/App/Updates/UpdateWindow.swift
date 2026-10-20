@@ -38,7 +38,7 @@ struct UpdateView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
-            Image(nsImage: NSApp.applicationIconImage)
+            Image(nsImage: AppInfo.icon)
                 .resizable()
                 .frame(width: 64, height: 64)
                 .accessibilityHidden(true)
@@ -230,9 +230,10 @@ struct UpdateBanner: View {
     var body: some View {
         if updater.showsBanner, let update = updater.update {
             HStack(spacing: 12) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(Color.accentColor)
+                Image(nsImage: AppInfo.icon)
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Toolbox \(update.version.description) is available").font(.headline)
                     Text(Self.summary(of: update))

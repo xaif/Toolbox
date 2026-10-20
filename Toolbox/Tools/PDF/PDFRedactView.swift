@@ -562,7 +562,7 @@ private struct PDFRedactCanvas: View {
                 if let draft {
                     Rectangle()
                         .fill(Color.black.opacity(0.6))
-                        .overlay(Rectangle().strokeBorder(Color.accentColor, lineWidth: 1))
+                        .overlay(Rectangle().strokeBorder(Color.documentMarkup, lineWidth: 1))
                         .frame(width: draft.width * frame.width, height: draft.height * frame.height)
                         .offset(x: frame.minX + draft.minX * frame.width, y: frame.minY + draft.minY * frame.height)
                         .allowsHitTesting(false)
@@ -582,7 +582,7 @@ private struct PDFRedactCanvas: View {
         let selected = model.selectedMark == mark.wrappedValue.id
         return Rectangle()
             .fill(Color.black.opacity(selected ? 0.85 : 0.75))
-            .overlay(Rectangle().strokeBorder(selected ? Color.accentColor : Color.red.opacity(0.7), lineWidth: selected ? 2 : 1))
+            .overlay(Rectangle().strokeBorder(selected ? Color.documentMarkup : Color.red.opacity(0.7), lineWidth: selected ? 2 : 1))
             .frame(width: max(rect.width * frame.width, 2), height: max(rect.height * frame.height, 2))
             .contentShape(Rectangle())
             .gesture(

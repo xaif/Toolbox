@@ -217,7 +217,7 @@ private struct WelcomeHero: View {
                                : .spring(duration: 0.8, bounce: 0.25).delay(0.12 + Double(index) * 0.04),
                                value: appeared)
             }
-            Image(nsImage: NSApp.applicationIconImage)
+            Image(nsImage: AppInfo.icon)
                 .resizable()
                 .frame(width: 128, height: 128)
                 .shadow(color: .black.opacity(0.2), radius: 16, y: 8)

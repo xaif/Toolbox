@@ -4,6 +4,7 @@ extension SettingsKey {
     static let updatesAutomatic = "updates.automatic"
     static let updatesLastChecked = "updates.lastChecked"
     static let updatesSkippedVersion = "updates.skippedVersion"
+    static let updatesLastLaunchedVersion = "updates.lastLaunchedVersion"
 }
 
 /// Finds new versions of Toolbox on GitHub and installs them. Checks by itself once soon after launch and
@@ -74,6 +75,7 @@ final class Updater {
 
     /// Starts automatic checks: shortly after launch, then whenever the last one is old enough.
     func start() {
+        refreshIconAfterUpdate()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { _ in
             Task { @MainActor in Updater.shared.checkIfDue() }
@@ -108,6 +110,21 @@ final class Updater {
                 phase = userInitiated ? .failed(error.localizedDescription) : previous == .checking ? .idle : previous
             }
         }
+    }
+
+    /// On the first launch of a new version, makes Finder and the Dock show its icon. Versions up to 0.2.0
+    /// swapped the app in without refreshing LaunchServices (and didn't note their version), so a changed icon
+    /// could stay stale until a restart.
+    private func refreshIconAfterUpdate() {
+        let defaults = UserDefaults.standard
+        let version = currentVersion.description
+        let previous = defaults.string(forKey: SettingsKey.updatesLastLaunchedVersion)
+        defaults.set(version, forKey: SettingsKey.updatesLastLaunchedVersion)
+        NSApp.applicationIconImage = AppInfo.icon
+        guard previous != version else { return }
+        let app = Bundle.main.bundleURL
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: app.path)
+        LSRegisterURL(app as CFURL, true)
     }
 
     // MARK: - Choices

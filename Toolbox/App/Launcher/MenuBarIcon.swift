@@ -14,7 +14,7 @@ final class MenuBarIcon: NSObject {
         if AppSettings.showsMenuBarIcon {
             guard item == nil else { return }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-            item.button?.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Toolbox")
+            item.button?.image = BrandMark.templateImage()
             item.button?.target = self
             item.button?.action = #selector(clicked)
             item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
