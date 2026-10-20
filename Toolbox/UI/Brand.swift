@@ -12,19 +12,23 @@ enum BrandMark {
     ]
     static let circle = (center: CGPoint(x: 11, y: 11), radius: CGFloat(8))
 
+    /// The strokes scaled to fit `rect`, centered, y pointing down.
+    static func path(in rect: CGRect) -> CGPath {
+        let scale = min(rect.width, rect.height) / 24
+        let origin = CGPoint(x: rect.midX - 12 * scale, y: rect.midY - 12 * scale)
+        func point(_ p: CGPoint) -> CGPoint { CGPoint(x: origin.x + p.x * scale, y: origin.y + p.y * scale) }
+        let path = CGMutablePath()
+        for line in lines { path.addLines(between: line.map(point)) }
+        let center = point(circle.center), radius = circle.radius * scale
+        path.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        return path
+    }
+
     /// The mark as a template image, for the menu bar, which tints it to match.
     static func templateImage(size: CGFloat = 18) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
-            let scale = rect.width / 24
-            let path = NSBezierPath()
-            for line in lines {
-                path.move(to: CGPoint(x: line[0].x * scale, y: line[0].y * scale))
-                for point in line.dropFirst() { path.line(to: CGPoint(x: point.x * scale, y: point.y * scale)) }
-            }
-            let radius = circle.radius * scale
-            path.appendOval(in: CGRect(x: circle.center.x * scale - radius, y: circle.center.y * scale - radius,
-                                       width: radius * 2, height: radius * 2))
-            path.lineWidth = 2 * scale
+            let path = NSBezierPath(cgPath: BrandMark.path(in: rect))
+            path.lineWidth = 2 * rect.width / 24
             path.lineCapStyle = .round
             path.lineJoinStyle = .round
             NSColor.black.setStroke()
@@ -47,6 +51,11 @@ enum BrandMark {
         let encoded = iconSVG.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: " ./:=-"))) ?? ""
         return #"<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,\#(encoded)">"#
     }
+}
+
+/// The mark as a shape, for stroking in place of a plain magnifying glass, as in the search fields.
+struct BrandGlyph: Shape {
+    func path(in rect: CGRect) -> Path { Path(BrandMark.path(in: rect)) }
 }
 
 extension NSColor {

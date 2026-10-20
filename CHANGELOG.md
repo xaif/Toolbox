@@ -6,6 +6,9 @@ land; `scripts/publish.sh <version>` turns that section into the release.
 
 ## Unreleased
 
+### Changed
+- The search fields in the launcher and on the home screen show Toolbox's mark, the magnifying glass with code brackets, instead of a plain magnifying glass.
+
 ## 0.3.0 — 2026-10-20
 
 ### New look

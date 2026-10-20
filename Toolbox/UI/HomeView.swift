@@ -61,9 +61,11 @@ struct HomeView: View {
     private var searchField: some View {
         @Bindable var model = model
         return HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.title3)
+            BrandGlyph()
+                .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                 .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+                .accessibilityHidden(true)
             TextField("Search tools — try “compress”, “pdf” or “gif”", text: $model.searchText)
                 .textFieldStyle(.plain)
                 .font(.title3)

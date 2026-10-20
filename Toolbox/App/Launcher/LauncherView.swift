@@ -613,11 +613,12 @@ struct LauncherView: View {
 
     private var searchBar: some View {
         HStack(spacing: 11) {
-            // Sized like the rows' tool icons, so the query lines up with their names.
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 17))
+            // Toolbox's mark, sized like the rows' tool icons so the query lines up with their names.
+            BrandGlyph()
+                .stroke(style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
                 .foregroundStyle(.secondary)
-                .frame(width: 22)
+                .frame(width: 22, height: 22)
+                .accessibilityHidden(true)
             TextField("Search tools — try “compress”, “pdf” or “gif”", text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 18))
