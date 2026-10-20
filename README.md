@@ -15,10 +15,15 @@ scripts/build.sh --sign     # signed Debug build
 scripts/build.sh --release  # signed Release build
 scripts/test.sh             # native integration tests with generated fixtures
 scripts/release.sh          # Developer ID–signed, notarized DMG (see script header)
+scripts/build-dmg.sh        # ad-hoc signed universal DMG, no Apple account needed
 xcodegen generate && open Toolbox.xcodeproj   # work in Xcode
 ```
 
 The Xcode project is generated from `project.yml` and is not committed.
+
+GitHub Actions builds the DMG with `scripts/build-dmg.sh`. Push a tag like `v0.1.0` to publish
+`Toolbox-0.1.0.dmg` as a GitHub release, or run **Build DMG** from the Actions tab to get the DMG
+as a run artifact.
 
 External engines are **not bundled**. Settings › Dependencies detects Homebrew installations,
 allows custom executable paths and offers installation:
