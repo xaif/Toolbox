@@ -6,6 +6,8 @@ land; `scripts/publish.sh <version>` turns that section into the release.
 
 ## Unreleased
 
+## 0.3.0 — 2026-10-20
+
 ### New look
 - A new app icon: a magnifying glass around code brackets. The menu bar icon, the install disk and the pages Toolbox shares with your phone wear it too.
 - Buttons, switches and highlights now follow the icon: black in Light Mode and white in Dark Mode. Selections on PDFs, scans and photos are blue, so they stand out on the page.
