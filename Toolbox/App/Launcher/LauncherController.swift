@@ -140,7 +140,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
 
     /// Liquid Glass, like Spotlight's: it refracts whatever is behind the panel, adapts to light and dark
     /// backgrounds, and turns frosted with Reduce Transparency.
-    private func makeGlassView() -> NSGlassEffectView {
+    private func makeGlassView() -> NSView {
         let bounds = NSRect(origin: .zero, size: LauncherPanel.size)
         let hosting = NSHostingView(rootView: LauncherView(model: model))
         hosting.sizingOptions = []
@@ -151,7 +151,15 @@ final class LauncherController: NSObject, NSWindowDelegate {
         glass.cornerRadius = LauncherPanel.cornerRadius
         glass.autoresizingMask = [.width, .height]
         glass.contentView = hosting
-        return glass
+        // The window server takes the glass's shape for a rectangle, outlining the panel's square corners
+        // with the window shadow's rim. Clipping the glass to its rounded shape gives the shadow that shape.
+        let container = NSView(frame: bounds)
+        container.wantsLayer = true
+        container.layer?.cornerRadius = LauncherPanel.cornerRadius
+        container.layer?.cornerCurve = .continuous
+        container.layer?.masksToBounds = true
+        container.addSubview(glass)
+        return container
     }
 
     /// Centers the panel horizontally in the upper part of the screen with the mouse pointer.
