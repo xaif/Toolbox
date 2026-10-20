@@ -6,6 +6,8 @@ land; `scripts/publish.sh <version>` turns that section into the release.
 
 ## Unreleased
 
+## 0.2.0 — 2026-10-20
+
 ### New
 - **Teleprompter.** Read your script right under the camera notch, or in a floating window you can put anywhere. It scrolls as you speak and waits when you stop, pauses while you hover over it, and stays hidden when you share or record your screen.
 - Split a script into cues with `#` headings, jump to any of them and go back to where you were. Notes in [square brackets] are dimmed and never counted.
