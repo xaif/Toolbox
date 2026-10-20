@@ -226,7 +226,7 @@ struct PDFExtractPagesView: View {
         runner.start(title: tool.name) { context in
             let base = url.deletingPathExtension().lastPathComponent
             if separate {
-                let folder = try context.outputFolder(named: base)
+                let folder = try context.outputFolder(named: base, nextTo: url)
                 for (position, index) in pages.enumerated() {
                     try Task.checkCancellation()
                     context.setStatus("Saving page \(index + 1)")
@@ -357,7 +357,7 @@ struct PDFSplitView: View {
                 let document = try PDFOps.open(input)
                 let groups = try PDFOps.splitGroups(mode, pageCount: document.pageCount)
                 let base = input.deletingPathExtension().lastPathComponent
-                let folder = try context.outputFolder(named: base)
+                let folder = try context.outputFolder(named: base, nextTo: input)
                 for (index, group) in groups.enumerated() {
                     try Task.checkCancellation()
                     let name = "\(base) \(PDFOps.label(for: group, pageCount: document.pageCount))"

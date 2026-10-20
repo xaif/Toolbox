@@ -10,12 +10,12 @@ enum AudioTools {
              keywords: ["cut", "shorten", "clip", "fade"], requirements: [.ffmpeg], input: .audio) { TrimAudioView(tool: $0) },
         Tool(id: "audio.cleanup", name: "Clean Up Audio", shortName: "Clean Up", category: .audio, symbol: "wand.and.stars",
              summary: "Remove background noise and even out volume.",
-             keywords: ["noise", "denoise", "hiss", "normalize", "enhance", "ai"], requirements: [.ffmpeg], input: .media) { CleanUpAudioView(tool: $0) },
+             keywords: ["noise", "denoise", "hiss", "normalize", "enhance", "ai"], requirements: [.ffmpeg], input: .media, quickAction: QuickAction("Clean Up", settings: CleanUpAudioView.Settings.self)) { CleanUpAudioView(tool: $0) },
         Tool(id: "audio.extract", name: "Extract Audio", category: .audio, symbol: "waveform.badge.plus",
              summary: "Save the soundtrack of a video as an audio file.",
-             keywords: ["rip", "mp3 from video", "soundtrack"], requirements: [.ffmpeg], input: .videos) { ExtractAudioView(tool: $0) },
+             keywords: ["rip", "mp3 from video", "soundtrack"], requirements: [.ffmpeg], input: .videos, quickAction: QuickAction("Extract Audio from", settings: ExtractAudioView.Settings.self)) { ExtractAudioView(tool: $0) },
         Tool(id: "audio.convert", name: "Convert Audio", shortName: "Convert", category: .audio, symbol: "arrow.triangle.2.circlepath",
              summary: "Change format to MP3, M4A, WAV, FLAC and more.",
-             keywords: ["mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "aiff", "format"], requirements: [.ffmpeg], input: .audios) { ConvertAudioView(tool: $0) },
+             keywords: ["mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "aiff", "format"], requirements: [.ffmpeg], input: .audios, quickAction: QuickAction("Convert", settings: ConvertAudioView.Settings.self)) { ConvertAudioView(tool: $0) },
     ]
 }

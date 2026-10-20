@@ -5,10 +5,15 @@ struct MuteVideoView: View {
     let tool: Tool
 
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.videoInputs, actionTitle: "Mute", verb: "Muting", noun: "videos") {
+        BatchToolView(tool: tool, accepts: UTType.videoInputs, actionTitle: "Mute", noun: "videos", job: { job }) {
             Text("The video is copied as-is without re-encoding, so quality is unchanged and it's fast.")
                 .foregroundStyle(.secondary)
-        } each: { input, context, progress in
+        }
+    }
+
+    /// What the action button runs, with the current settings. The launcher's quick action runs it too.
+    var job: ToolJob {
+        .each(verb: "Muting") { input, context, progress in
             let info = try await FFmpeg.probe(input)
             guard info.hasVideo else { throw ToolError.failed("No video stream found.") }
             let output = context.output(for: input, suffix: "muted")

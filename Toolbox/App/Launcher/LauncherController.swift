@@ -32,19 +32,53 @@ final class LauncherController: NSObject, NSWindowDelegate {
         if let paths = UserDefaults.standard.string(forKey: "debugLauncherFiles") {
             model.useFiles(paths.split(separator: ",").map { URL(fileURLWithPath: String($0)) })
         }
+        // `-debugLauncherOptions image.compress` opens straight to that tool's options.
+        if let id = UserDefaults.standard.string(forKey: "debugLauncherOptions"), let tool = ToolRegistry.tool(id) {
+            model.showOptions(for: tool)
+        }
         #endif
     }
 
     func hide() {
         panel?.orderOut(nil)
         model.cancelFinderLookup()
+        model.stopRecordingHotKey()
+    }
+
+    /// Picks `tool` (↩ or a click): runs it on the selected files, shows its options first when it asks
+    /// for them, or opens it.
+    func activate(_ tool: Tool) {
+        if model.asksFirst(tool) { model.showOptions(for: tool) } else { open(tool) }
+    }
+
+    /// Picks `tool` for `files` from outside the launcher (its hotkey): runs it, or opens the launcher on
+    /// its options when it asks for them first.
+    func activate(_ tool: Tool, files: [URL]) {
+        model.useFiles(files)
+        guard model.asksFirst(tool) else {
+            QuickRun.perform(tool, on: files, run: true)
+            return
+        }
+        show()
+        model.cancelFinderLookup()
+        model.useFiles(files)
+        model.showOptions(for: tool)
     }
 
     /// Opens a tool in the main window, handing over the Finder selection unless `withFiles` is false.
-    func open(_ tool: Tool, withFiles: Bool = true) {
+    /// Tools with a quick action instead run on those files in the background, unless `run` is false.
+    func open(_ tool: Tool, withFiles: Bool = true, run: Bool = true) {
         let files = withFiles ? model.finderFiles : []
         hide()
-        AppModel.shared.openTool(tool, with: files)
+        QuickRun.perform(tool, on: files, run: run)
+    }
+
+    /// Runs `tool` on the selected files with the options shown in the launcher.
+    func run(_ tool: Tool) {
+        guard QuickRun.isReady(tool) else { return }
+        let files = model.finderFiles
+        hide()
+        if !QuickRun.start(tool, on: files) { AppModel.shared.openTool(tool, with: files) }
     }
 
     func openMainWindow() {
@@ -92,13 +126,26 @@ final class LauncherController: NSObject, NSWindowDelegate {
 
     private func makePanel() -> LauncherPanel {
         let panel = LauncherPanel()
-        let hosting = NSHostingView(rootView: LauncherView(model: model))
-        hosting.sizingOptions = []
-        hosting.frame = NSRect(origin: .zero, size: LauncherPanel.size)
-        panel.contentView = hosting
+        panel.contentView = makeGlassView()
         panel.delegate = self
         self.panel = panel
         return panel
+    }
+
+    /// Liquid Glass, like Spotlight's: it refracts whatever is behind the panel, adapts to light and dark
+    /// backgrounds, and turns frosted with Reduce Transparency.
+    private func makeGlassView() -> NSGlassEffectView {
+        let bounds = NSRect(origin: .zero, size: LauncherPanel.size)
+        let hosting = NSHostingView(rootView: LauncherView(model: model))
+        hosting.sizingOptions = []
+        hosting.autoresizingMask = [.width, .height]
+        hosting.frame = bounds
+        let glass = NSGlassEffectView(frame: bounds)
+        glass.style = .regular
+        glass.cornerRadius = LauncherPanel.cornerRadius
+        glass.autoresizingMask = [.width, .height]
+        glass.contentView = hosting
+        return glass
     }
 
     /// Centers the panel horizontally in the upper part of the screen with the mouse pointer.
@@ -106,17 +153,24 @@ final class LauncherController: NSObject, NSWindowDelegate {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
-        let size = LauncherPanel.size
+        let size = NSSize(width: min(LauncherPanel.size.width, visible.width - 32),
+                          height: min(LauncherPanel.size.height, visible.height - 32))
+        // Keep the search field at the reference launcher's upper-screen position. Results scroll
+        // inside the panel; their count never changes its position or pushes the footer offscreen.
         let origin = NSPoint(x: visible.midX - size.width / 2,
-                             y: visible.maxY - visible.height * 0.14 - size.height)
+                             y: max(visible.minY + 16, visible.maxY - visible.height * 0.11 - size.height))
         panel.setFrame(NSRect(origin: origin, size: size), display: false)
     }
 }
 
-/// Borderless, transparent, floating panel. The rounded glass shape is drawn by `LauncherView`.
+/// Borderless, transparent, floating panel whose content is a rounded glass view.
 final class LauncherPanel: NSPanel {
     static let size = NSSize(width: 750, height: 475)
-    static let cornerRadius: CGFloat = 26
+    /// Controls in the panel's corners sit `inset` from its edges with a corner radius of
+    /// `cornerRadius - inset`, so their curves are concentric with the panel's.
+    static let cornerRadius: CGFloat = 28
+    static let inset: CGFloat = 9
+    static let controlHeight: CGFloat = 38
 
     init() {
         super.init(contentRect: NSRect(origin: .zero, size: Self.size),
@@ -143,6 +197,9 @@ final class LauncherPanel: NSPanel {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        MainActor.assumeIsolated { LauncherController.shared.hide() }
+        MainActor.assumeIsolated {
+            let launcher = LauncherController.shared
+            if launcher.model.optionsTool != nil { launcher.model.closeOptions() } else { launcher.hide() }
+        }
     }
 }

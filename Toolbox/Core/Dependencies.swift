@@ -55,12 +55,13 @@ final class Dependencies {
             return
         }
         installStates[dependency] = .installing
-        installLog[dependency] = ["$ brew install \(dependency.brewFormula)"]
+        let arguments = ["install"] + (dependency.isCask ? ["--cask"] : []) + [dependency.brewFormula]
+        installLog[dependency] = ["$ brew " + arguments.joined(separator: " ")]
         Task {
             do {
                 try await ProcessRunner.runChecked(
                     brew,
-                    arguments: ["install", dependency.brewFormula],
+                    arguments: arguments,
                     onStdoutLine: { line in Task { @MainActor in self.appendLog(line, for: dependency) } },
                     onStderrLine: { line in Task { @MainActor in self.appendLog(line, for: dependency) } }
                 )
@@ -88,7 +89,19 @@ final class Dependencies {
     }
 
     nonisolated static func locate(_ dependency: ExternalDependency) -> URL? {
-        locate(executable: dependency.executableName, custom: AppSettings.customExecutable(for: dependency))
+        if dependency == .libreoffice, AppSettings.customExecutable(for: dependency) == nil {
+            for location in ["/Applications/LibreOffice.app/Contents/MacOS/soffice",
+                             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/LibreOffice.app/Contents/MacOS/soffice").path] {
+                if FileManager.default.isExecutableFile(atPath: location) { return URL(fileURLWithPath: location) }
+            }
+        }
+        if dependency == .calibre, AppSettings.customExecutable(for: dependency) == nil {
+            for location in ["/Applications/calibre.app/Contents/MacOS/ebook-convert",
+                             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/calibre.app/Contents/MacOS/ebook-convert").path] {
+                if FileManager.default.isExecutableFile(atPath: location) { return URL(fileURLWithPath: location) }
+            }
+        }
+        return locate(executable: dependency.executableName, custom: AppSettings.customExecutable(for: dependency))
     }
 
     /// `ffprobe` ships next to `ffmpeg`; prefer the sibling of whichever ffmpeg we use.

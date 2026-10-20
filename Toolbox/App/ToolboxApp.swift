@@ -18,6 +18,8 @@ struct ToolboxApp: App {
                 .frame(minWidth: 880, minHeight: 580)
         }
         .defaultSize(width: 1120, height: 740)
+        // Unit tests launch the app as their host; keep it off screen.
+        .defaultLaunchBehavior(AppDelegate.isTesting ? .suppressed : .automatic)
         .commands { AppCommands(model: model) }
 
         Settings {
@@ -30,19 +32,42 @@ struct ToolboxApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var defaultsObserver: NSObjectProtocol?
 
+    static let isTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // No Dock icon or focus stealing while tests run.
+        if Self.isTesting { NSApp.setActivationPolicy(.prohibited) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !Self.isTesting else { return }
         MainActor.assumeIsolated {
             HotKeyManager.shared.update()
+            MenuBarIcon.shared.update()
+            DragWheel.shared.update()
+            // After the main window opens, so the welcome window lands in front of it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { OnboardingController.shared.showIfNeeded() }
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "debugShowLauncher") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { LauncherController.shared.show() }
+            }
+            // `-debugQuickRun image.compress -debugInputs /a.png,/b.png` runs a quick action a few seconds
+            // after launch, as if picked in the launcher.
+            if let id = UserDefaults.standard.string(forKey: "debugQuickRun"), let tool = ToolRegistry.tool(id) {
+                let inputs = (UserDefaults.standard.string(forKey: "debugInputs") ?? "")
+                    .split(separator: ",").map { URL(fileURLWithPath: String($0)) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { QuickRun.perform(tool, on: inputs, run: true) }
             }
             #endif
         }
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { HotKeyManager.shared.update() }
+            MainActor.assumeIsolated {
+                HotKeyManager.shared.update()
+                MenuBarIcon.shared.update()
+                DragWheel.shared.update()
+            }
         }
     }
 
@@ -70,12 +95,16 @@ struct AppCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        CommandGroup(after: .appSettings) {
+            Button("Permissions…") { OnboardingController.shared.show(page: .permissions) }
+        }
         CommandGroup(replacing: .newItem) {
             Button("Find a Tool…") { model.focusSearch() }
                 .keyboardShortcut("k")
             Button("Home") { model.open(.home) }
                 .keyboardShortcut("0")
             Button("Show Quick Launcher") { LauncherController.shared.show() }
+            Button("File Wheel for Finder Selection") { DragWheel.shared.showForFinderSelection() }
         }
         CommandGroup(before: .sidebar) {
             ForEach(FeaturedCollection.allCases) { collection in

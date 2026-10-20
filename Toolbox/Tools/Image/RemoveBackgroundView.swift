@@ -17,7 +17,9 @@ struct RemoveBackgroundView: View {
     @State private var cropToSubject = false
 
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Remove Background", verb: "Cutting out", noun: "images") {
+        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Remove Background", noun: "images",
+                      job: { Self.job(background: background, cropToSubject: cropToSubject,
+                                      fill: NSColor(color).usingColorSpace(.sRGB)?.cgColor) }) {
             Picker("Background", selection: $background) {
                 ForEach(Background.allCases) { Text($0.label).tag($0) }
             }
@@ -29,7 +31,12 @@ struct RemoveBackgroundView: View {
             Toggle("Crop to the subject", isOn: $cropToSubject)
             Text("Uses Apple's on-device subject detection. Results are saved as PNG.")
                 .font(.callout).foregroundStyle(.secondary)
-        } each: { [background, cropToSubject, fill = NSColor(color).usingColorSpace(.sRGB)?.cgColor] input, context, progress in
+        }
+    }
+
+    /// What the action button runs. The launcher's quick action runs it with the default settings.
+    static func job(background: Background, cropToSubject: Bool, fill: CGColor?) -> ToolJob {
+        .each(verb: "Cutting out") { input, context, progress in
             let source = try ImageIOHelpers.source(for: input)
             let image = try ImageIOHelpers.orientedImage(source, index: CGImageSourceGetPrimaryImageIndex(source))
             progress(0.2)

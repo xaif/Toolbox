@@ -149,7 +149,8 @@ struct FileListInput: View {
         for url in urls where url.isFileURL {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
-            if isDirectory.boolValue, !conforms(url, to: types) {
+            let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]).isPackage) == true
+            if isDirectory.boolValue, !isPackage {
                 let enumerator = FileManager.default.enumerator(
                     at: url, includingPropertiesForKeys: [.isRegularFileKey, .contentTypeKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants])

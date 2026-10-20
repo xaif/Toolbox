@@ -94,6 +94,8 @@ struct TrimAudioView: View {
     @State private var fadeInSeconds = 1.0
     @State private var fadeOut = false
     @State private var fadeOutSeconds = 1.0
+    @State private var detectingSilence = false
+    @State private var silenceError: String?
 
     init(tool: Tool) {
         self.tool = tool
@@ -192,6 +194,22 @@ struct TrimAudioView: View {
             }
             Text("New length: \(TimeFormat.string(model.range.upperBound - model.range.lowerBound, precise: true))")
                 .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button(detectingSilence ? "Detecting Silence…" : "Trim Silence at Ends") {
+                    guard let input = model.url else { return }
+                    detectingSilence = true; silenceError = nil
+                    let range = model.range
+                    Task {
+                        do {
+                            model.range = try await AudioSilence.edges(input, range: range)
+                            model.seek(model.range.lowerBound)
+                        } catch { silenceError = error.localizedDescription }
+                        detectingSilence = false
+                    }
+                }.disabled(detectingSilence)
+                Text("Keeps pauses within the recording.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let silenceError { Text(silenceError).foregroundStyle(.orange) }
         }
         .disabled(runner.isRunning)
     }
@@ -239,5 +257,23 @@ struct TrimAudioView: View {
         args += format.highQualityArguments
         args += ["-map_metadata", "0", destination.path]
         return args
+    }
+}
+
+enum AudioSilence {
+    static func edges(_ input: URL, range: ClosedRange<Double>) async throws -> ClosedRange<Double> {
+        let result = try await ProcessRunner.runChecked(Dependencies.require(.ffmpeg), arguments: ["-hide_banner", "-nostdin", "-ss", FFmpeg.timestamp(range.lowerBound), "-i", input.path, "-t", FFmpeg.timestamp(range.upperBound-range.lowerBound), "-af", "silencedetect=noise=-45dB:d=0.15", "-f", "null", "-"])
+        let pattern = try NSRegularExpression(pattern: "silence_(start|end): ([0-9.]+)")
+        let raw = result.stderr as NSString
+        let events = pattern.matches(in: result.stderr, range: NSRange(location: 0, length: raw.length)).compactMap { match -> (String, Double)? in
+            guard let time = Double(raw.substring(with: match.range(at: 2))) else { return nil }
+            return (raw.substring(with: match.range(at: 1)), time)
+        }
+        let length = range.upperBound-range.lowerBound
+        var lower = 0.0, upper = length
+        if events.first?.0 == "start", let first = events.first, first.1 <= 0.05, let end = events.first(where: { $0.0 == "end" }) { lower = end.1 }
+        if let lastStart = events.last(where: { $0.0 == "start" }), let last = events.last, last.0 == "end", last.1 >= length-0.05 { upper = lastStart.1 }
+        guard upper-lower >= 0.1 else { throw ToolError.failed("No audible audio remains in this selection.") }
+        return (range.lowerBound+lower)...(range.lowerBound+upper)
     }
 }

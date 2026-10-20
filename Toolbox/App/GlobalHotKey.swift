@@ -4,6 +4,11 @@ import Carbon.HIToolbox
 /// A system-wide keyboard shortcut using Carbon's RegisterEventHotKey.
 /// Works without Accessibility permission.
 final class GlobalHotKey {
+    private static let signature = OSType(0x54424F58) // 'TBOX'
+    private static var nextID: UInt32 = 1
+
+    let shortcut: HotKeyShortcut
+    private let id: UInt32
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private let action: () -> Void
@@ -11,19 +16,34 @@ final class GlobalHotKey {
     private(set) var isRegistered = false
 
     init(_ shortcut: HotKeyShortcut, action: @escaping () -> Void) {
+        self.shortcut = shortcut
         self.action = action
+        id = Self.nextID
+        Self.nextID += 1
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let context = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-            guard let userData else { return noErr }
+        // Every hotkey installs a handler, so each one passes on presses that belong to another.
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+            var pressed = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                              nil, MemoryLayout<EventHotKeyID>.size, nil, &pressed)
             let hotKey = Unmanaged<GlobalHotKey>.fromOpaque(userData).takeUnretainedValue()
+            guard pressed.signature == GlobalHotKey.signature, pressed.id == hotKey.id else {
+                return OSStatus(eventNotHandledErr)
+            }
             DispatchQueue.main.async { hotKey.action() }
             return noErr
         }, 1, &eventType, context, &handlerRef)
 
-        let id = EventHotKeyID(signature: OSType(0x54424F58), id: 1) // 'TBOX'
-        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id, GetApplicationEventTarget(), 0, &hotKeyRef)
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
+        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         isRegistered = status == noErr
+    }
+
+    /// Whether no other app holds `shortcut`. Toolbox's own registered shortcuts count as taken too.
+    static func isAvailable(_ shortcut: HotKeyShortcut) -> Bool {
+        GlobalHotKey(shortcut) {}.isRegistered
     }
 
     deinit {
@@ -55,12 +75,7 @@ struct HotKeyShortcut: Equatable {
 
     /// Builds a shortcut from a key event. Returns nil unless ⌘, ⌥ or ⌃ is held (or it's a function key).
     init?(event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        var carbon: UInt32 = 0
-        if flags.contains(.command) { carbon |= UInt32(cmdKey) }
-        if flags.contains(.option) { carbon |= UInt32(optionKey) }
-        if flags.contains(.control) { carbon |= UInt32(controlKey) }
-        if flags.contains(.shift) { carbon |= UInt32(shiftKey) }
+        let carbon = Self.carbonModifiers(event.modifierFlags)
         let isFunctionKey = Self.functionKeys[Int(event.keyCode)] != nil
         guard carbon & UInt32(cmdKey | optionKey | controlKey) != 0 || isFunctionKey else { return nil }
         self.init(keyCode: UInt32(event.keyCode), modifiers: carbon)
@@ -72,13 +87,36 @@ struct HotKeyShortcut: Equatable {
     }
 
     /// e.g. "⌃⌥Space".
-    var displayString: String {
-        var text = ""
-        if modifiers & UInt32(controlKey) != 0 { text += "⌃" }
-        if modifiers & UInt32(optionKey) != 0 { text += "⌥" }
-        if modifiers & UInt32(shiftKey) != 0 { text += "⇧" }
-        if modifiers & UInt32(cmdKey) != 0 { text += "⌘" }
-        return text + keyName
+    var displayString: String { keyCaps.joined() }
+
+    /// One entry per key, e.g. ["⌃", "⌥", "Space"].
+    var keyCaps: [String] {
+        Self.modifierSymbols(modifiers) + [keyName]
+    }
+
+    /// The Hyper key: ⌃⌥⇧⌘ held together, shown as one key the way Raycast does.
+    static let hyperSymbol = "✦"
+
+    /// The symbols for a Carbon modifier mask, in the order macOS shows them.
+    static func modifierSymbols(_ modifiers: UInt32) -> [String] {
+        let hyper = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+        if modifiers & hyper == hyper { return [hyperSymbol] }
+        var symbols: [String] = []
+        if modifiers & UInt32(controlKey) != 0 { symbols.append("⌃") }
+        if modifiers & UInt32(optionKey) != 0 { symbols.append("⌥") }
+        if modifiers & UInt32(shiftKey) != 0 { symbols.append("⇧") }
+        if modifiers & UInt32(cmdKey) != 0 { symbols.append("⌘") }
+        return symbols
+    }
+
+    /// Converts AppKit modifier flags to a Carbon mask.
+    static func carbonModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
+        var carbon: UInt32 = 0
+        if flags.contains(.command) { carbon |= UInt32(cmdKey) }
+        if flags.contains(.option) { carbon |= UInt32(optionKey) }
+        if flags.contains(.control) { carbon |= UInt32(controlKey) }
+        if flags.contains(.shift) { carbon |= UInt32(shiftKey) }
+        return carbon
     }
 
     private var keyName: String {

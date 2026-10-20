@@ -285,11 +285,9 @@ struct AISpeechLanguagePicker: View {
                         Text("No on-device speech languages are available on this Mac.").foregroundStyle(.secondary)
                     }
                 } else {
-                    Picker("Language", selection: $identifier) {
-                        ForEach(store.locales, id: \.identifier) { locale in
-                            Text(Transcriber.displayName(for: locale)).tag(locale.identifier)
-                        }
-                    }
+                    OptionPicker("Language", selection: $identifier, choices: store.locales.map { locale in
+                        OptionChoice(locale.identifier, Transcriber.displayName(for: locale))
+                    })
                 }
             } else {
                 LabeledContent("Language") { ProgressView().controlSize(.small) }

@@ -31,7 +31,11 @@ targets:
         NSMicrophoneUsageDescription: Toolbox uses the microphone to record audio, narrate screen recordings, and transcribe dictation.
         NSSpeechRecognitionUsageDescription: Toolbox transcribes audio on your Mac. Nothing is uploaded.
         NSScreenCaptureUsageDescription: Toolbox records your screen when you start a screen recording.
-        NSAppleEventsUsageDescription: Toolbox reads the files selected in Finder so the quick launcher can open them in a tool.
+        NSAppleEventsUsageDescription: Toolbox reads Finder selections and uses Apple Pages locally to convert Pages documents.
+        NSDesktopFolderUsageDescription: Toolbox opens the files you pick on your Desktop and saves the results next to them.
+        NSDocumentsFolderUsageDescription: Toolbox opens the files you pick in Documents and saves the results next to them.
+        NSDownloadsFolderUsageDescription: Toolbox opens the files you pick in Downloads, and saves recordings and results there.
+        NSLocalNetworkUsageDescription: Share on Wi-Fi and Whiteboard let phones and computers on your network open a private link to this Mac. Nothing goes through the internet.
     entitlements:
       path: Toolbox/Resources/Toolbox.entitlements
       properties:
@@ -51,3 +55,24 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         COMBINE_HIDPI_IMAGES: YES
         ENABLE_PREVIEWS: YES
+  ToolboxTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Toolbox
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.fiaxe.toolbox.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Toolbox.app/Contents/MacOS/Toolbox"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  Toolbox:
+    build:
+      targets:
+        Toolbox: all
+    test:
+      targets:
+        - ToolboxTests

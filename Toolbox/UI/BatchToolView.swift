@@ -5,28 +5,28 @@ import UniformTypeIdentifiers
 ///
 /// Per-file tools (convert, compress, resize…) use `init(… each:)`, which processes inputs one by one.
 /// Combining tools (merge, images to PDF…) use `init(… all:)`, which receives every input at once.
+/// Tools with a launcher quick action pass `job:` instead, built from their saved `ToolSettings`, so the
+/// page and the launcher run the same job.
 ///
-/// Options live in the calling view as `@State`; the work closure captures their current values
-/// when the user presses the action button. The closure runs off the main actor.
+/// Options live in the calling view as `@State`, or in a `ToolSettings` view for tools with a quick action.
+/// The work closure captures their current values when the user presses the action button. The closure
+/// runs off the main actor.
 struct BatchToolView<Options: View>: View {
-    enum Work {
-        case each(@Sendable (_ input: URL, _ context: JobContext, _ progress: @escaping @Sendable (Double) -> Void) async throws -> Void)
-        case all(@Sendable (_ inputs: [URL], _ context: JobContext) async throws -> Void)
-    }
-
     let tool: Tool
     let accepts: [UTType]
     var allowsMultiple: Bool
     var reorderable: Bool
     var minimumFiles: Int
     var actionTitle: String
-    var verb: String
     var noun: String
     var canRun: Bool
     var options: Options
-    let work: Work
+    /// Built when the action button is pressed, so it reads the latest settings. Nil disables the button.
+    let makeJob: () -> ToolJob?
 
     @State private var runner: JobRunner
+    /// Bumped when saved settings change, so the button re-checks `makeJob`.
+    @State private var settingsRevision = 0
 
     /// Processes each input separately.
     init(
@@ -46,11 +46,10 @@ struct BatchToolView<Options: View>: View {
         self.reorderable = false
         self.minimumFiles = 1
         self.actionTitle = actionTitle
-        self.verb = verb
         self.noun = noun
         self.canRun = canRun
         self.options = options()
-        self.work = .each(each)
+        self.makeJob = { .each(verb: verb, each) }
         _runner = State(initialValue: JobCenter.shared.runner(for: tool.id))
     }
 
@@ -72,15 +71,45 @@ struct BatchToolView<Options: View>: View {
         self.reorderable = reorderable
         self.minimumFiles = minimumFiles
         self.actionTitle = actionTitle
-        self.verb = "Processing"
         self.noun = noun
         self.canRun = canRun
         self.options = options()
-        self.work = .all(all)
+        self.makeJob = { .all(all) }
+        _runner = State(initialValue: JobCenter.shared.runner(for: tool.id))
+    }
+
+    /// Runs the job `makeJob` builds from the tool's saved settings, typically `{ Settings().job(for: tool) }`,
+    /// the same job its launcher quick action runs.
+    init(
+        tool: Tool,
+        accepts: [UTType],
+        reorderable: Bool = false,
+        minimumFiles: Int = 1,
+        actionTitle: String,
+        noun: String = "files",
+        job makeJob: @escaping () -> ToolJob?,
+        @ViewBuilder options: () -> Options
+    ) {
+        self.tool = tool
+        self.accepts = accepts
+        self.allowsMultiple = true
+        self.reorderable = reorderable
+        self.minimumFiles = minimumFiles
+        self.actionTitle = actionTitle
+        self.noun = noun
+        self.canRun = true
+        self.options = options()
+        self.makeJob = makeJob
         _runner = State(initialValue: JobCenter.shared.runner(for: tool.id))
     }
 
     private var hasEnoughFiles: Bool { runner.inputs.count >= minimumFiles }
+
+    /// Whether the saved settings make a runnable job. Reads `settingsRevision` to refresh when they change.
+    private var settingsReady: Bool {
+        _ = settingsRevision
+        return makeJob() != nil
+    }
 
     var body: some View {
         ToolPage(tool: tool, runner: runner) {
@@ -92,28 +121,19 @@ struct BatchToolView<Options: View>: View {
                     .disabled(runner.isRunning)
             }
         } footer: {
-            JobBar(runner: runner, actionTitle: actionTitle, canRun: hasEnoughFiles && canRun,
+            JobBar(runner: runner, actionTitle: actionTitle, canRun: hasEnoughFiles && canRun && settingsReady,
                    hint: hasEnoughFiles ? nil : (minimumFiles > 1 ? "Add at least \(minimumFiles) \(noun)." : "Add \(noun) to get started."),
                    action: start)
         }
         .onChange(of: runner.inputs) { if !runner.isRunning { runner.reset() } }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            settingsRevision += 1
+        }
     }
 
     private func start() {
-        let inputs = runner.inputs
-        let verb = verb
-        switch work {
-        case .each(let body):
-            runner.start(title: tool.name) { context in
-                try await context.forEach(inputs, verb: verb) { input, progress in
-                    try await body(input, context, progress)
-                }
-            }
-        case .all(let body):
-            runner.start(title: tool.name) { context in
-                try await body(inputs, context)
-            }
-        }
+        guard let job = makeJob() else { return }
+        runner.start(job, title: tool.name, inputs: runner.inputs)
     }
 }
 

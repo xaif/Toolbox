@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// Audio formats the audio tools can write with FFmpeg.
 enum AudioOutputFormat: String, CaseIterable, Identifiable {
-    case mp3, m4a, wav, aiff, flac, ogg, opus
+    case mp3, m4a, wav, aiff, flac, ogg, opus, wma
 
     var id: Self { self }
 
@@ -16,6 +16,7 @@ enum AudioOutputFormat: String, CaseIterable, Identifiable {
         case .flac: "FLAC"
         case .ogg: "OGG (Opus)"
         case .opus: "Opus"
+        case .wma: "WMA"
         }
     }
 
@@ -28,7 +29,7 @@ enum AudioOutputFormat: String, CaseIterable, Identifiable {
 
     var isLossy: Bool {
         switch self {
-        case .mp3, .m4a, .ogg, .opus: true
+        case .mp3, .m4a, .ogg, .opus, .wma: true
         case .wav, .aiff, .flac: false
         }
     }
@@ -45,6 +46,7 @@ enum AudioOutputFormat: String, CaseIterable, Identifiable {
         case .aiff: ["-c:a", "pcm_s16be"]
         case .flac: ["-c:a", "flac"]
         case .ogg, .opus: ["-c:a", "libopus", "-b:a", "\(min(bitrate, 256))k"]
+        case .wma: ["-c:a", "wmav2", "-b:a", "\(min(bitrate, 320))k"]
         }
     }
 
@@ -68,6 +70,7 @@ enum AudioOutputFormat: String, CaseIterable, Identifiable {
         case "flac": .flac
         case "ogg", "oga": .ogg
         case "opus": .opus
+        case "wma": .wma
         default: nil
         }
     }

@@ -29,6 +29,8 @@ final class LauncherModel {
         }
     }
     var highlighted = 0
+    /// Pointer hover changes selection without moving the list under the pointer.
+    private(set) var selectionScrollRequest = 0
     private(set) var actionsOpen = false
     var actionHighlighted = 0
     var actionQuery = "" {
@@ -37,17 +39,30 @@ final class LauncherModel {
     private(set) var finderFiles: [URL] = []
     private(set) var isLoadingFinder = false
     private(set) var focusRequest = 0
+    /// The tool whose hotkey is being recorded (⌘K › Set Hotkey).
+    private(set) var hotKeyTool: Tool?
+    /// Modifiers held down while recording, shown until a key completes the combination.
+    private(set) var heldModifiers: [String] = []
+    /// Why the last combination pressed while recording can't be used.
+    private(set) var hotKeyProblem: String?
+    /// The tool whose options are shown in place of the results (⇥, or ↩ on a tool that asks first).
+    private(set) var optionsTool: Tool?
+    /// Moves through and changes `optionsTool`'s options from the keyboard.
+    let optionsForm = OptionsNavigator()
     /// How many of the Finder files each tool accepts, computed once per selection.
     private var acceptedCounts: [String: Int] = [:]
     @ObservationIgnored private var finderTask: Task<Void, Never>?
+    @ObservationIgnored private var hotKeyMonitor: Any?
 
     private var favorites: Favorites { Favorites.shared }
 
     func reset() {
         cancelFinderLookup()
+        stopRecordingHotKey()
         query = ""
         highlighted = 0
         actionsOpen = false
+        optionsTool = nil
         finderFiles = []
         acceptedCounts = [:]
     }
@@ -87,6 +102,48 @@ final class LauncherModel {
     }
 
     func acceptedCount(for tool: Tool) -> Int { acceptedCounts[tool.id] ?? 0 }
+
+    /// Whether `tool` can run on the selected files from the launcher, perhaps after showing its options.
+    func canQuickRun(_ tool: Tool) -> Bool {
+        guard let action = tool.quickAction else { return false }
+        return acceptedCount(for: tool) >= action.minimumFiles && QuickRun.isAvailable(tool)
+    }
+
+    /// Whether ↩ shows `tool`'s options first instead of running it: the tool asks for them (a size, an
+    /// angle), its saved options are incomplete, or running right away is turned off in Settings.
+    func asksFirst(_ tool: Tool) -> Bool {
+        canQuickRun(tool) && (tool.quickAction?.asksFirst == true || !AppSettings.launcherRunsTools || !QuickRun.isReady(tool))
+    }
+
+    /// What ↩ does for `tool`, e.g. "Compress 3 Files", "Resize 3 Files…" (options first) or "Open Tool".
+    func primaryTitle(for tool: Tool?) -> String {
+        guard let tool, canQuickRun(tool), let verb = tool.quickAction?.verb else { return "Open Tool" }
+        let count = acceptedCount(for: tool)
+        let title = "\(verb) \(count) \(count == 1 ? "File" : "Files")"
+        return optionsTool == nil && asksFirst(tool) ? title + "…" : title
+    }
+
+    // MARK: Options (⇥)
+
+    func showOptions(for tool: Tool) {
+        guard canQuickRun(tool) else { return }
+        actionsOpen = false
+        optionsForm.reset(submit: { modifiers in
+            if modifiers.contains(.shift) {
+                LauncherController.shared.open(tool, run: false)
+            } else {
+                LauncherController.shared.run(tool)
+            }
+        }, cancel: { [weak self] in
+            self?.closeOptions()
+        })
+        optionsTool = tool
+    }
+
+    func closeOptions() {
+        optionsTool = nil
+        requestFocus()
+    }
 
     // MARK: Results
 
@@ -138,7 +195,10 @@ final class LauncherModel {
     func move(_ delta: Int) {
         let count = flatTools.count
         guard count > 0 else { return }
-        highlighted = min(max(highlighted + delta, 0), count - 1)
+        let next = min(max(highlighted + delta, 0), count - 1)
+        guard next != highlighted else { return }
+        highlighted = next
+        selectionScrollRequest += 1
     }
 
     var highlightedTool: Tool? {
@@ -149,25 +209,35 @@ final class LauncherModel {
     // MARK: Favorites
 
     func toggleFavoriteOfHighlighted() {
-        guard let tool = highlightedTool else { return }
+        if let tool = highlightedTool { toggleFavorite(tool) }
+    }
+
+    func moveHighlightedFavorite(by offset: Int) {
+        if let tool = highlightedTool { moveFavorite(tool, by: offset) }
+    }
+
+    func toggleFavorite(_ tool: Tool) {
         favorites.toggle(tool.id)
         keepHighlight(on: tool)
     }
 
-    func moveHighlightedFavorite(by offset: Int) {
-        guard let tool = highlightedTool, favorites.contains(tool.id) else { return }
+    func moveFavorite(_ tool: Tool, by offset: Int) {
+        guard favorites.contains(tool.id) else { return }
         favorites.move(tool.id, by: offset)
         keepHighlight(on: tool)
     }
 
     private func keepHighlight(on tool: Tool) {
-        if let index = flatTools.firstIndex(of: tool) { highlighted = index }
+        if let index = flatTools.firstIndex(of: tool) {
+            highlighted = index
+            selectionScrollRequest += 1
+        }
     }
 
     // MARK: Actions (⌘K)
 
     func toggleActions() {
-        guard highlightedTool != nil else { return }
+        guard highlightedTool != nil || optionsTool != nil else { return }
         actionsOpen.toggle()
         actionQuery = ""
         actionHighlighted = 0
@@ -195,12 +265,47 @@ final class LauncherModel {
         return actions.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
+    /// The ⌘K actions: for the tool whose options are shown, otherwise for the highlighted tool.
     var actions: [Action] {
-        guard let tool = highlightedTool else { return [] }
+        if let tool = optionsTool { return optionsActions(for: tool) }
+        return highlightedTool.map(actions(for:)) ?? []
+    }
+
+    /// Actions in the options view. Everything also has a button, so it works without the keyboard.
+    private func optionsActions(for tool: Tool) -> [Action] {
         let launcher = LauncherController.shared
-        var list = [Action(id: "open", title: "Open", symbol: "arrow.up.forward.app", keys: ["↩"], group: 0) {
-            launcher.open(tool)
-        }]
+        return [
+            Action(id: "run", title: primaryTitle(for: tool), symbol: "play", keys: ["↩"], group: 0) {
+                launcher.run(tool)
+            },
+            Action(id: "open", title: "Open in Toolbox Window", symbol: "macwindow", keys: ["⇧", "↩"], group: 0) {
+                launcher.open(tool, run: false)
+            },
+            Action(id: "back", title: "Back to All Tools", symbol: "chevron.left", keys: ["esc"], group: 1) { [weak self] in
+                self?.closeOptions()
+            },
+        ]
+    }
+
+    /// The actions for `tool`'s row: the ⌘K panel, its … button and its right-click menu.
+    func actions(for tool: Tool) -> [Action] {
+        let launcher = LauncherController.shared
+        var list: [Action] = []
+        if canQuickRun(tool) {
+            list.append(Action(id: "run", title: primaryTitle(for: tool), symbol: "play", keys: ["↩"], group: 0) {
+                launcher.activate(tool)
+            })
+            list.append(Action(id: "options", title: "Show Options", symbol: "slider.horizontal.3", keys: ["⇥"], group: 0) { [weak self] in
+                self?.showOptions(for: tool)
+            })
+            list.append(Action(id: "open", title: "Open Tool", symbol: "arrow.up.forward.app", keys: ["⇧", "↩"], group: 0) {
+                launcher.open(tool, run: false)
+            })
+        } else {
+            list.append(Action(id: "open", title: "Open", symbol: "arrow.up.forward.app", keys: ["↩"], group: 0) {
+                launcher.open(tool)
+            })
+        }
         if acceptedCount(for: tool) > 0 {
             list.append(Action(id: "open-empty", title: "Open Without Selected Files", symbol: "doc", keys: ["⌥", "↩"], group: 0) {
                 launcher.open(tool, withFiles: false)
@@ -209,104 +314,223 @@ final class LauncherModel {
         let isFavorite = favorites.contains(tool.id)
         list.append(Action(id: "favorite", title: isFavorite ? "Remove from Favorites" : "Add to Favorites",
                            symbol: isFavorite ? "star.slash" : "star", keys: ["⇧", "⌘", "F"], group: 1) { [weak self] in
-            self?.toggleFavoriteOfHighlighted()
+            self?.toggleFavorite(tool)
         })
         if isFavorite {
             list.append(Action(id: "up", title: "Move Favorite Up", symbol: "arrow.up", keys: ["⌥", "⌘", "↑"], group: 1) { [weak self] in
-                self?.moveHighlightedFavorite(by: -1)
+                self?.moveFavorite(tool, by: -1)
             })
             list.append(Action(id: "down", title: "Move Favorite Down", symbol: "arrow.down", keys: ["⌥", "⌘", "↓"], group: 1) { [weak self] in
-                self?.moveHighlightedFavorite(by: 1)
+                self?.moveFavorite(tool, by: 1)
             })
         }
-        list.append(Action(id: "results", title: "Show Results Folder", symbol: "folder", keys: [], group: 2) {
-            launcher.hide()
-            let folder = AppSettings.outputMode == .custom ? (AppSettings.customOutputFolder ?? OutputManager.downloadsBase)
-                                                           : OutputManager.downloadsBase
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            NSWorkspace.shared.open(folder)
+        let hasHotKey = HotKeyManager.shared.toolShortcuts[tool.id] != nil
+        list.append(Action(id: "hotkey", title: hasHotKey ? "Change Hotkey…" : "Set Hotkey…", symbol: "keyboard",
+                           keys: [], group: 2) { [weak self] in
+            self?.startRecordingHotKey(for: tool)
         })
-        list.append(Action(id: "window", title: "Open Toolbox Window", symbol: "macwindow", keys: ["⌘", "↩"], group: 2) {
+        if hasHotKey {
+            list.append(Action(id: "remove-hotkey", title: "Remove Hotkey", symbol: "minus.circle", keys: [], group: 2) {
+                HotKeyManager.shared.setShortcut(nil, for: tool.id)
+            })
+        }
+        // Results saved next to the originals (or wherever the user picks) have no one folder to show.
+        if let folder = OutputManager.fixedFolder {
+            list.append(Action(id: "results", title: "Show Results Folder", symbol: "folder", keys: [], group: 3) {
+                launcher.hide()
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                NSWorkspace.shared.open(folder)
+            })
+        }
+        list.append(Action(id: "window", title: "Open Toolbox Window", symbol: "macwindow", keys: ["⌘", "↩"], group: 3) {
             launcher.openMainWindow()
         })
-        list.append(Action(id: "settings", title: "Toolbox Settings…", symbol: "gearshape", keys: ["⌘", ","], group: 2) {
+        list.append(Action(id: "settings", title: "Toolbox Settings…", symbol: "gearshape", keys: ["⌘", ","], group: 3) {
             launcher.openSettings()
         })
         return list
+    }
+
+    // MARK: Hotkey (⌘K › Set Hotkey)
+
+    var isRecordingHotKey: Bool { hotKeyTool != nil }
+
+    /// Listens for the next key combination and makes it `tool`'s global hotkey.
+    func startRecordingHotKey(for tool: Tool) {
+        stopRecordingHotKey()
+        actionsOpen = false
+        hotKeyTool = tool
+        // Release Toolbox's own hotkeys so pressing one reaches the recorder instead of firing.
+        HotKeyManager.shared.isSuspended = true
+        hotKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self else { return event }
+            if event.type == .flagsChanged {
+                heldModifiers = HotKeyShortcut.modifierSymbols(HotKeyShortcut.carbonModifiers(event.modifierFlags))
+                return event
+            }
+            record(event)
+            return nil
+        }
+    }
+
+    func stopRecordingHotKey() {
+        if let hotKeyMonitor { NSEvent.removeMonitor(hotKeyMonitor) }
+        hotKeyMonitor = nil
+        guard hotKeyTool != nil else { return }
+        hotKeyTool = nil
+        heldModifiers = []
+        hotKeyProblem = nil
+        HotKeyManager.shared.isSuspended = false
+    }
+
+    func removeRecordingHotKey() {
+        guard let tool = hotKeyTool else { return }
+        HotKeyManager.shared.setShortcut(nil, for: tool.id)
+        stopRecordingHotKey()
+    }
+
+    private func record(_ event: NSEvent) {
+        guard let tool = hotKeyTool else { return }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers.isEmpty, event.keyCode == 53 { // Esc
+            stopRecordingHotKey()
+        } else if modifiers.isEmpty, event.keyCode == 51 || event.keyCode == 117 { // ⌫, ⌦
+            removeRecordingHotKey()
+        } else if let shortcut = HotKeyShortcut(event: event) {
+            if let problem = problem(with: shortcut, for: tool) {
+                hotKeyProblem = problem
+                NSSound.beep()
+            } else {
+                HotKeyManager.shared.setShortcut(shortcut, for: tool.id)
+                stopRecordingHotKey()
+            }
+        } else {
+            hotKeyProblem = "Include ⌘, ⌥ or ⌃ in the hotkey."
+            NSSound.beep()
+        }
+    }
+
+    /// Why `shortcut` can't open `tool`, or nil if it can.
+    private func problem(with shortcut: HotKeyShortcut, for tool: Tool) -> String? {
+        let keys = shortcut.displayString
+        if AppSettings.hotKeyEnabled, shortcut == .current {
+            return "\(keys) is Toolbox's global shortcut."
+        }
+        if let other = HotKeyManager.shared.tool(using: shortcut), other != tool {
+            return "\(keys) already opens \(other.name)."
+        }
+        // Toolbox's own hotkeys are released while recording, so this only catches other apps.
+        if !GlobalHotKey.isAvailable(shortcut) {
+            return "Another app already uses \(keys)."
+        }
+        return nil
     }
 }
 
 // MARK: - View
 
-/// Colours sampled from Raycast's launcher so the panel reads the same in light and dark mode.
-private struct LauncherPalette {
+/// Fills for content on the launcher's glass, tuned to read over light and dark backgrounds.
+struct LauncherPalette {
     let scheme: ColorScheme
     var isDark: Bool { scheme == .dark }
 
-    /// Laid over the blur; mostly opaque so busy windows behind don't show through.
-    var base: Color { isDark ? Color(white: 0.13).opacity(0.88) : Color(white: 0.952).opacity(0.86) }
-    var rim: Color { isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.09) }
-    var highlight: Color { isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.075) }
-    var raised: Color { isDark ? Color(white: 0.20) : Color(white: 0.985) }
-    var raisedRim: Color { isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.07) }
+    /// Smokes the glass in dark mode: over bright windows, regular glass alone turns mid-gray and washes
+    /// out light text.
+    var smoke: Color { isDark ? Color.black.opacity(0.3) : .clear }
+    /// The selected row, and the backgrounds of small buttons.
+    var highlight: Color { isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.07) }
+    /// Grouped content sitting on the glass, like the options form.
+    var card: Color { isDark ? Color.white.opacity(0.06) : Color.white.opacity(0.5) }
+    var cardRim: Color { isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06) }
 }
 
 struct LauncherView: View {
-    private enum Field { case search, actions }
+    private enum Field { case search, actions, options }
+
+    /// The ⌘K actions and the hotkey recorder sit in the bottom-trailing corner, concentric with the panel.
+    private static let popoverRadius = LauncherPanel.cornerRadius - LauncherPanel.inset
+    /// How far up from the bottom content has to sit to be clear of the floating controls.
+    private static let controlsClearance = LauncherPanel.inset * 2 + LauncherPanel.controlHeight + 6
 
     @Bindable var model: LauncherModel
     @FocusState private var focus: Field?
-    @State private var mouseMovedSinceOpen = false
+    @State private var lastPointerLocation: NSPoint?
+    /// Bumped when saved settings change, so the options pane re-checks whether the tool can run.
+    @State private var settingsRevision = 0
+    @Namespace private var glassNamespace
     @Environment(\.colorScheme) private var colorScheme
 
     private var palette: LauncherPalette { LauncherPalette(scheme: colorScheme) }
-    private let shape = RoundedRectangle(cornerRadius: LauncherPanel.cornerRadius, style: .circular)
+    private let shape = RoundedRectangle(cornerRadius: LauncherPanel.cornerRadius, style: .continuous)
 
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                searchBar
-                results
+                if let tool = model.optionsTool {
+                    optionsHeader(tool)
+                    optionsPane(tool)
+                } else {
+                    searchBar
+                    results
+                }
             }
-            footer
-            if model.actionsOpen {
+            if model.actionsOpen || model.isRecordingHotKey {
                 Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture { model.closeActions() }
-                actionsPanel
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottomTrailing)))
+                    .onTapGesture {
+                        model.closeActions()
+                        model.stopRecordingHotKey()
+                    }
             }
+            controls
         }
-        .animation(.easeOut(duration: 0.12), value: model.actionsOpen)
-        .frame(width: LauncherPanel.size.width, height: LauncherPanel.size.height)
-        .background {
-            ZStack {
-                LauncherBackground(cornerRadius: LauncherPanel.cornerRadius)
-                palette.base
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(palette.smoke)
         .clipShape(shape)
-        .overlay(shape.strokeBorder(palette.rim, lineWidth: 1))
-        .onAppear { focus = .search }
-        .onChange(of: model.focusRequest) {
-            focus = .search
-            mouseMovedSinceOpen = false
+        .onAppear {
+            updateFocus()
+            lastPointerLocation = NSEvent.mouseLocation
         }
-        .onChange(of: model.actionsOpen) { focus = model.actionsOpen ? .actions : .search }
+        .onChange(of: model.focusRequest) {
+            updateFocus()
+            lastPointerLocation = NSEvent.mouseLocation
+        }
+        .onChange(of: model.actionsOpen) { updateFocus() }
+        .onChange(of: model.isRecordingHotKey) { updateFocus() }
+        .onChange(of: model.optionsTool) { updateFocus() }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            settingsRevision += 1
+        }
+    }
+
+    /// The hotkey recorder reads keys itself, so no field keeps focus while it's open.
+    private func updateFocus() {
+        if model.isRecordingHotKey {
+            focus = nil
+        } else if model.actionsOpen {
+            // The actions field is added in this same update, and focus set before it exists is dropped,
+            // leaving ↑↓ moving the results behind the panel.
+            DispatchQueue.main.async { if model.actionsOpen { focus = .actions } }
+        } else if model.optionsTool != nil {
+            // A focused text option takes the keyboard back itself.
+            if model.optionsForm.isEditingText { model.optionsForm.restoreTextFocus() } else { focus = .options }
+        } else {
+            focus = .search
+        }
     }
 
     // MARK: Search bar
 
     private var searchBar: some View {
-        HStack(spacing: 13) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 18, weight: .medium))
+        HStack(spacing: 11) {
+            // Sized like the rows' tool icons, so the query lines up with their names.
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 17))
                 .foregroundStyle(.secondary)
-            TextField("Search for tools…", text: $model.query)
+                .frame(width: 22)
+            TextField("Search tools — try “compress”, “pdf” or “gif”", text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 20))
+                .font(.system(size: 18))
                 .focused($focus, equals: .search)
                 .onKeyPress(.downArrow) { model.move(1); return .handled }
                 .onKeyPress(.upArrow) { model.move(-1); return .handled }
@@ -314,8 +538,18 @@ struct LauncherView: View {
                     if press.modifiers.contains(.command) {
                         LauncherController.shared.openMainWindow()
                     } else if let tool = model.highlightedTool {
-                        LauncherController.shared.open(tool, withFiles: !press.modifiers.contains(.option))
+                        if press.modifiers.isDisjoint(with: [.option, .shift]) {
+                            LauncherController.shared.activate(tool)
+                        } else {
+                            LauncherController.shared.open(tool, withFiles: !press.modifiers.contains(.option),
+                                                           run: !press.modifiers.contains(.shift))
+                        }
                     }
+                    return .handled
+                }
+                .onKeyPress(.tab) {
+                    guard let tool = model.highlightedTool, model.canQuickRun(tool) else { return .ignored }
+                    model.showOptions(for: tool)
                     return .handled
                 }
                 .onKeyPress(.escape) {
@@ -338,7 +572,7 @@ struct LauncherView: View {
             }
         }
         .padding(.horizontal, 20)
-        .frame(height: 58)
+        .frame(height: 60)
     }
 
     private var finderChip: some View {
@@ -351,10 +585,10 @@ struct LauncherView: View {
             .buttonStyle(.plain)
             .help("Don't use the Finder selection")
         }
-        .font(.system(size: 13))
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .background(Color.accentColor.opacity(0.13), in: Capsule())
+        .font(.system(size: 13, weight: .medium))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.accentColor.opacity(0.18), in: Capsule())
         .foregroundStyle(Color.accentColor)
         .fixedSize()
         .help("Selected in Finder. The tool you open gets these files.")
@@ -370,12 +604,13 @@ struct LauncherView: View {
 
     private enum Row: Identifiable {
         case header(String, isFirst: Bool)
-        case tool(Tool, index: Int)
+        /// `section` is the title of the section the row is in.
+        case tool(Tool, index: Int, section: String)
 
         var id: String {
             switch self {
             case .header(let title, _): "header:\(title)"
-            case .tool(let tool, _): "tool:\(tool.id)"
+            case .tool(let tool, _, _): "tool:\(tool.id)"
             }
         }
     }
@@ -386,7 +621,7 @@ struct LauncherView: View {
         for (sectionIndex, section) in model.sections.enumerated() {
             rows.append(.header(section.title, isFirst: sectionIndex == 0))
             for tool in section.tools {
-                rows.append(.tool(tool, index: index))
+                rows.append(.tool(tool, index: index, section: section.title))
                 index += 1
             }
         }
@@ -398,114 +633,264 @@ struct LauncherView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if model.flatTools.isEmpty {
-                        Text("No tools match “\(model.query)”")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 240)
+                        ContentUnavailableView.search(text: model.query)
+                            .frame(maxWidth: .infinity, minHeight: 300)
                     }
                     ForEach(rows) { row in
                         switch row {
                         case .header(let title, let isFirst):
                             Text(title)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
+                                .padding(.horizontal, 11)
                                 .padding(.top, isFirst ? 2 : 14)
                                 .padding(.bottom, 6)
                                 .id(row.id)
-                        case .tool(let tool, let index):
+                        case .tool(let tool, let index, let section):
+                            // Within a category's own section its name would only repeat the header.
                             LauncherRow(tool: tool, isHighlighted: index == model.highlighted,
-                                        fileCount: model.acceptedCount(for: tool), highlight: palette.highlight)
+                                        subtitle: section == tool.category.name ? nil : tool.category.name,
+                                        fileCount: model.acceptedCount(for: tool),
+                                        hotKey: HotKeyManager.shared.toolShortcuts[tool.id]?.keyCaps ?? [],
+                                        highlight: palette.highlight,
+                                        showOptions: model.canQuickRun(tool) ? { model.showOptions(for: tool) } : nil,
+                                        showActions: {
+                                            model.highlighted = index
+                                            model.toggleActions()
+                                        })
                                 .id(row.id)
-                                .onTapGesture { LauncherController.shared.open(tool) }
+                                .onTapGesture { LauncherController.shared.activate(tool) }
+                                .contextMenu { contextMenu(for: tool) }
                                 .onContinuousHover { phase in
-                                    // Ignore the hover the pointer is already resting on when the panel opens.
-                                    if case .active = phase, !model.actionsOpen {
-                                        if mouseMovedSinceOpen { model.highlighted = index } else { mouseMovedSinceOpen = true }
+                                    // Layout changes and scrolling can emit hover updates with a stationary
+                                    // pointer. Only a real pointer move should change the selected row.
+                                    if case .active = phase, !model.actionsOpen, !model.isRecordingHotKey {
+                                        let location = NSEvent.mouseLocation
+                                        if let previous = lastPointerLocation, location != previous {
+                                            model.highlighted = index
+                                        }
+                                        lastPointerLocation = location
                                     }
                                 }
                         }
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 60) // room to scroll the last row above the floating footer
+                .padding(.horizontal, LauncherPanel.inset)
             }
             .scrollIndicators(.never)
+            .defaultScrollAnchor(.top, for: .sizeChanges)
+            // The floating controls cover the bottom of the list. As safe area, it still lets rows scroll
+            // under them, but moving the selection scrolls it to rest above them instead of beneath.
+            .safeAreaPadding(.bottom, Self.controlsClearance)
             .mask {
+                // Rows dissolve into the glass as they pass under the floating controls, and are gone by
+                // the middle of them so the controls' glass doesn't pick up their colors.
+                let gone = LauncherPanel.inset + LauncherPanel.controlHeight / 2
                 VStack(spacing: 0) {
                     Rectangle()
                     LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 64)
+                        .frame(height: Self.controlsClearance - gone)
+                    Color.clear.frame(height: gone)
                 }
             }
-            .onChange(of: model.highlighted) {
+            .onChange(of: model.selectionScrollRequest) {
                 // Keep the first section's header visible when the top row is selected.
                 if model.highlighted == 0 { proxy.scrollTo(rows.first?.id, anchor: .top) }
                 else if let tool = model.highlightedTool { proxy.scrollTo("tool:\(tool.id)") }
             }
             .onChange(of: model.query) { proxy.scrollTo(rows.first?.id, anchor: .top) }
             .onChange(of: model.focusRequest) { proxy.scrollTo(rows.first?.id, anchor: .top) }
+            .onChange(of: model.finderFiles) { proxy.scrollTo(rows.first?.id, anchor: .top) }
         }
     }
 
-    // MARK: Footer
+    // MARK: Floating controls
 
-    private var footer: some View {
-        HStack {
-            Menu {
-                Button("Open Toolbox Window") { LauncherController.shared.openMainWindow() }
-                Button("Toolbox Settings…") { LauncherController.shared.openSettings() }
-                Divider()
-                Button("Quit Toolbox") { NSApp.terminate(nil) }
+    /// The menu button and the action bar float over the results as Liquid Glass. ⌘K grows the action bar
+    /// into the actions panel and shrinks it back, the way glass controls morph into what they open.
+    private var controls: some View {
+        GlassEffectContainer {
+            HStack(alignment: .bottom) {
+                menuButton
+                Spacer(minLength: 0)
+                Group {
+                    if let tool = model.hotKeyTool {
+                        hotKeyRecorder(for: tool)
+                            .glassEffect(.regular, in: .rect(cornerRadius: Self.popoverRadius))
+                    } else if model.actionsOpen {
+                        actionsPanel
+                            .glassEffect(.regular, in: .rect(cornerRadius: Self.popoverRadius))
+                    } else if model.optionsTool != nil || model.highlightedTool != nil {
+                        actionBar
+                            .glassEffect(.regular, in: .capsule)
+                    }
+                }
+                .glassEffectID("actions", in: glassNamespace)
+            }
+            .padding(LauncherPanel.inset)
+        }
+        .animation(Self.morph, value: model.actionsOpen)
+        .animation(Self.morph, value: model.isRecordingHotKey)
+    }
+
+    /// A quick spring with a hint of overshoot, like the system's glass morphs.
+    private static let morph = Animation.spring(response: 0.34, dampingFraction: 0.86)
+
+    private var menuButton: some View {
+        Menu {
+            Button("Open Toolbox Window") { LauncherController.shared.openMainWindow() }
+            Button("Toolbox Settings…") { LauncherController.shared.openSettings() }
+            Divider()
+            Button("Quit Toolbox") { NSApp.terminate(nil) }
+        } label: {
+            Image(systemName: "equal")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: LauncherPanel.controlHeight, height: LauncherPanel.controlHeight)
+                .contentShape(Circle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .glassEffect(.regular.interactive(), in: .circle)
+    }
+
+    /// Raycast's action bar: the primary action, Options (when the tool has them) and Actions. Every
+    /// part is a button, so the launcher works with the mouse alone.
+    private var actionBar: some View {
+        let optionsTool = model.optionsTool
+        let tool = optionsTool ?? model.highlightedTool
+        let ready = optionsTool.map(isReady) ?? true
+        return HStack(spacing: 2) {
+            Button {
+                if let optionsTool { LauncherController.shared.run(optionsTool) }
+                else if let tool { LauncherController.shared.activate(tool) }
             } label: {
-                Image(systemName: "equal")
-                    .font(.system(size: 14, weight: .semibold))
+                HStack(spacing: 7) {
+                    Text(model.primaryTitle(for: tool)).fontWeight(.medium)
+                    KeyCap("↩")
+                }
+            }
+            .disabled(!ready)
+            if optionsTool == nil, let tool, model.canQuickRun(tool) {
+                barDivider
+                Button { model.showOptions(for: tool) } label: {
+                    HStack(spacing: 7) {
+                        Text("Options").foregroundStyle(.secondary)
+                        KeyCap("⇥")
+                    }
+                }
+            }
+            barDivider
+            Button { model.toggleActions() } label: {
+                HStack(spacing: 7) {
+                    Text("Actions").foregroundStyle(.secondary)
+                    KeyCap("⌘")
+                    KeyCap("K")
+                }
+            }
+        }
+        .buttonStyle(BarButtonStyle(highlight: palette.highlight))
+        .font(.system(size: 13))
+        .padding(.horizontal, BarButtonStyle.inset)
+        .frame(height: LauncherPanel.controlHeight)
+    }
+
+    private var barDivider: some View {
+        Rectangle().fill(.separator).frame(width: 1, height: 16)
+    }
+
+    /// Whether `tool` can run with its saved options. Reads `settingsRevision` to refresh as they change.
+    private func isReady(_ tool: Tool) -> Bool {
+        _ = settingsRevision
+        return QuickRun.isReady(tool)
+    }
+
+    /// A row's right-click menu: the same actions as ⌘K, grouped the same way.
+    @ViewBuilder
+    private func contextMenu(for tool: Tool) -> some View {
+        let actions = model.actions(for: tool)
+        ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+            if index > 0, actions[index - 1].group != action.group { Divider() }
+            Button { action.perform() } label: { Label(action.title, systemImage: action.symbol) }
+        }
+    }
+
+    // MARK: Options (⇥)
+
+    private func optionsHeader(_ tool: Tool) -> some View {
+        HStack(spacing: 12) {
+            Button { model.closeOptions() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 28, height: 28)
+                    .background(palette.highlight, in: Circle())
                     .contentShape(Circle())
             }
-            .menuStyle(.button)
             .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .background(raisedSurface(Circle()))
-
-            Spacer()
-
-            if !model.actionsOpen {
-                HStack(spacing: 12) {
-                    Button { if let tool = model.highlightedTool { LauncherController.shared.open(tool) } } label: {
-                        HStack(spacing: 7) {
-                            Text("Open Tool").fontWeight(.medium)
-                            KeyCap("↩")
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    Rectangle().fill(.separator).frame(width: 1, height: 16)
-                    Button { model.toggleActions() } label: {
-                        HStack(spacing: 7) {
-                            Text("Actions").foregroundStyle(.secondary)
-                            KeyCap("⌘")
-                            KeyCap("K")
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-                .font(.system(size: 13))
-                .padding(.horizontal, 16)
-                .frame(height: 38)
-                .background(raisedSurface(Capsule()))
-            }
+            .help("Back to all tools")
+            ToolIcon(tool: tool, size: 24)
+            Text(tool.name)
+                .font(.system(size: 18))
+            Spacer(minLength: 0)
+            if !model.finderFiles.isEmpty { finderChip }
         }
-        .padding(10)
+        .padding(.horizontal, 20)
+        .frame(height: 60)
     }
 
-    /// The near-white floating surface used by the footer controls and the actions panel.
-    private func raisedSurface<S: InsettableShape>(_ shape: S) -> some View {
-        shape
-            .fill(palette.raised.opacity(0.94))
-            .background(.regularMaterial, in: shape)
-            .overlay(shape.strokeBorder(palette.raisedRim))
-            .shadow(color: .black.opacity(palette.isDark ? 0.3 : 0.08), radius: 8, y: 2)
+    /// The tool's saved options, the same form as on its page in the Toolbox window, laid out as rows to
+    /// move through with ↑↓ and change with ←→, space or typing.
+    private func optionsPane(_ tool: Tool) -> some View {
+        let form = model.optionsForm
+        let card = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Options")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                    Group {
+                        if let options = tool.quickAction?.makeOptions {
+                            KeyboardOptionsForm(navigator: form) { options() }
+                                .padding(6)
+                        } else {
+                            Text("\(tool.name) has no options.")
+                                .foregroundStyle(.secondary)
+                                .padding(16)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(palette.card, in: card)
+                    .overlay(card.strokeBorder(palette.cardRim))
+                    Group {
+                        if tool.quickAction?.combinesFiles == true {
+                            Text("Files are combined in name order. To choose the order, open the tool (⇧↩).")
+                        }
+                        Text("Options are saved for next time, here and in the Toolbox window.")
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 4)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 2)
+                .padding(.bottom, Self.controlsClearance) // room above the floating controls
+            }
+            .onChange(of: form.focusedID) {
+                if let id = form.focusedID { proxy.scrollTo(id) }
+                // Text options take the keyboard themselves; the rest are driven from here.
+                if !form.isEditingText { focus = .options }
+            }
+        }
+        .scrollIndicators(.never)
+        .focusable()
+        .focused($focus, equals: .options)
+        .focusEffectDisabled()
+        .onKeyPress(phases: [.down, .repeat]) { form.handle($0) }
     }
 
     // MARK: Actions (⌘K)
@@ -513,12 +898,12 @@ struct LauncherView: View {
     private var actionsPanel: some View {
         let actions = model.visibleActions
         return VStack(alignment: .leading, spacing: 0) {
-            if let tool = model.highlightedTool {
+            if let tool = model.optionsTool ?? model.highlightedTool {
                 Text(tool.name)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
                     .padding(.bottom, 6)
             }
             VStack(alignment: .leading, spacing: 1) {
@@ -531,7 +916,7 @@ struct LauncherView: View {
                 }
                 ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                     if index > 0, actions[index - 1].group != action.group {
-                        Divider().padding(.horizontal, 6).padding(.vertical, 5)
+                        Divider().padding(.horizontal, 10).padding(.vertical, 5)
                     }
                     actionRow(action, isHighlighted: index == model.actionHighlighted)
                         .onTapGesture { model.performAction(at: index) }
@@ -545,7 +930,7 @@ struct LauncherView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .focused($focus, equals: .actions)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .frame(height: 44)
                 .onKeyPress(.downArrow) { model.moveAction(1); return .handled }
                 .onKeyPress(.upArrow) { model.moveAction(-1); return .handled }
@@ -559,15 +944,75 @@ struct LauncherView: View {
                 }
         }
         .frame(width: 350)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.raisedRim))
-        .shadow(color: .black.opacity(palette.isDark ? 0.35 : 0.14), radius: 18, y: 6)
+    }
+
+    // MARK: Hotkey recorder (⌘K › Set Hotkey)
+
+    private func hotKeyRecorder(for tool: Tool) -> some View {
+        let current = HotKeyManager.shared.toolShortcuts[tool.id]
+        let keys = model.heldModifiers.isEmpty ? current?.keyCaps ?? [] : model.heldModifiers
+        let prompt = current == nil ? "Press a key combination" : "Press a new key combination"
+        let well = RoundedRectangle(cornerRadius: Self.popoverRadius - 10, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Hotkey for \(tool.name)")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+            VStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    if keys.isEmpty {
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.tertiary)
+                    }
+                    ForEach(keys, id: \.self) { KeyCap($0, large: true) }
+                }
+                .frame(height: 30)
+                Text(model.hotKeyProblem ?? prompt)
+                    .font(.system(size: 13))
+                    .foregroundStyle(model.hotKeyProblem == nil ? Color.secondary : Color.orange)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 104)
+            .background(palette.highlight.opacity(0.5), in: well)
+            .overlay(well.strokeBorder(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+            Divider()
+            HStack(spacing: 16) {
+                Button { model.stopRecordingHotKey() } label: {
+                    HStack(spacing: 6) {
+                        Text("Cancel")
+                        KeyCap("esc")
+                    }
+                }
+                if current != nil {
+                    Button { model.removeRecordingHotKey() } label: {
+                        HStack(spacing: 6) {
+                            Text("Remove Hotkey")
+                            KeyCap("⌫")
+                        }
+                    }
+                }
+                Spacer()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+        }
+        .frame(width: 350)
     }
 
     private func actionRow(_ action: LauncherModel.Action, isHighlighted: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: action.symbol)
                 .font(.system(size: 13))
+                .foregroundStyle(.secondary)
                 .frame(width: 18)
             Text(action.title)
             Spacer(minLength: 12)
@@ -576,7 +1021,7 @@ struct LauncherView: View {
         .font(.system(size: 14))
         .padding(.horizontal, 10)
         .frame(height: 34)
-        .background(isHighlighted ? palette.highlight : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(isHighlighted ? palette.highlight : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(Rectangle())
     }
 }
@@ -584,8 +1029,17 @@ struct LauncherView: View {
 private struct LauncherRow: View {
     let tool: Tool
     let isHighlighted: Bool
+    /// Shown after the name in sections that mix categories.
+    let subtitle: String?
     let fileCount: Int
+    let hotKey: [String]
     let highlight: Color
+    /// Shows the tool's options in the launcher. Nil when it can't run on the selected files.
+    let showOptions: (() -> Void)?
+    /// Opens the actions panel for this row.
+    let showActions: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 11) {
@@ -593,41 +1047,103 @@ private struct LauncherRow: View {
             Text(tool.name)
                 .font(.system(size: 14))
                 .foregroundStyle(.primary)
-            Text(tool.category.name)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 8)
             if fileCount > 0 {
                 Text(fileCount == 1 ? "1 file" : "\(fileCount) files")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
+            if !hotKey.isEmpty {
+                HStack(spacing: 3) { ForEach(hotKey, id: \.self) { KeyCap($0) } }
+            }
+            // Like Raycast, hovering a row reveals its actions as buttons.
+            if isHovered {
+                HStack(spacing: 4) {
+                    if let showOptions {
+                        rowButton("slider.horizontal.3", help: "Options", action: showOptions)
+                    }
+                    rowButton("ellipsis", help: "Actions", action: showActions)
+                }
+            }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 38)
-        .background(isHighlighted ? highlight : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 11)
+        .frame(height: 40)
+        .background(isHighlighted ? highlight : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+
+    private func rowButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(highlight, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
-/// A small keyboard key, like the hints in Raycast's footer.
-private struct KeyCap: View {
+/// A button in the floating action bar. A capsule, concentric with the bar's, lights up under the pointer
+/// and deepens while pressed.
+private struct BarButtonStyle: ButtonStyle {
+    /// The gap between the bar's edge and its buttons.
+    static let inset: CGFloat = 5
+    let highlight: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        BarButton(configuration: configuration, highlight: highlight)
+    }
+
+    private struct BarButton: View {
+        let configuration: Configuration
+        let highlight: Color
+        @State private var isHovered = false
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .padding(.horizontal, 10)
+                .frame(height: LauncherPanel.controlHeight - BarButtonStyle.inset * 2)
+                .background(highlight.opacity(configuration.isPressed ? 1 : isHovered ? 0.6 : 0), in: Capsule())
+                .opacity(isEnabled ? 1 : 0.45)
+                .contentShape(Capsule())
+                .onHover { isHovered = $0 && isEnabled }
+        }
+    }
+}
+
+/// A small keyboard key, like the hints in Raycast's footer. `large` is for the hotkey recorder.
+struct KeyCap: View {
     let key: String
-    init(_ key: String) { self.key = key }
+    let large: Bool
+    init(_ key: String, large: Bool = false) {
+        self.key = key
+        self.large = large
+    }
 
     var body: some View {
+        let side: CGFloat = large ? 28 : 18
+        let radius: CGFloat = large ? 7 : 5
         Text(key)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
-            .frame(minWidth: 18, minHeight: 18)
-            .padding(.horizontal, key.count > 1 ? 4 : 0)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.primary.opacity(0.13)))
+            .font(.system(size: large ? 15 : 11, weight: .medium))
+            .foregroundStyle(large ? .primary : .secondary)
+            .frame(minWidth: side, minHeight: side)
+            .padding(.horizontal, key.count > 1 ? (large ? 7 : 4) : 0)
+            .background(Color.primary.opacity(0.09), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
 /// Behind-window blur with rounded corners that stays vibrant even though the app isn't active.
-private struct LauncherBackground: NSViewRepresentable {
+struct LauncherBackground: NSViewRepresentable {
     let cornerRadius: CGFloat
 
     func makeNSView(context: Context) -> NSVisualEffectView {

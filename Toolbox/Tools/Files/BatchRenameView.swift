@@ -374,7 +374,7 @@ struct BatchRenameView: View {
                    canRun: !rows.isEmpty && errors == 0 && changes > 0 && rules.regexError == nil,
                    hint: hint(rows: rows, errors: errors, changes: changes),
                    idleMessage: inPlace ? "Files are renamed where they are. You can undo the last rename."
-                                        : "Originals stay untouched. Renamed copies go to a new folder.",
+                                        : nil,
                    action: start)
         }
         .onChange(of: runner.phase) {
@@ -558,7 +558,7 @@ struct BatchRenameView: View {
                     context.setStatus("Copying \(index + 1) of \(items.count): \(item.name)")
                     let ext = (item.name as NSString).pathExtension
                     let base = ext.isEmpty ? item.name : String(item.name.dropLast(ext.count + 1))
-                    try FileManager.default.copyItem(at: item.source, to: context.output(named: base, extension: ext))
+                    try FileManager.default.copyItem(at: item.source, to: context.output(named: base, extension: ext, nextTo: item.source))
                     context.setProgress(Double(index + 1) / Double(items.count))
                 }
             }

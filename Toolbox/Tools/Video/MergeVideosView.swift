@@ -16,36 +16,45 @@ struct MergeVideosView: View {
         }
     }
 
-    @State private var size = Size.first
-
     var body: some View {
         BatchToolView(tool: tool, accepts: UTType.videoInputs, reorderable: true, minimumFiles: 2,
-                      actionTitle: "Merge", noun: "videos") {
-            Picker("Output size", selection: $size) {
-                ForEach(Size.allCases) { Text($0.label).tag($0) }
-            }
+                      actionTitle: "Merge", noun: "videos", job: { Settings().job(for: tool) }) {
+            Settings()
             Text("Drag clips to set their order. Clips with a different shape are letterboxed, never stretched.")
                 .font(.callout).foregroundStyle(.secondary)
-        } all: { [size] inputs, context in
-            context.setStatus("Reading clips…")
-            var infos: [MediaInfo] = []
-            for input in inputs {
-                let info = try await FFmpeg.probe(input)
-                guard info.hasVideo else { throw ToolError.failed("“\(input.lastPathComponent)” has no video.") }
-                infos.append(info)
-            }
-            let first = infos[0]
-            let firstSize = first.displaySize
-            let (width, height) = MergeVideosView.outputSize(first: firstSize, target: size.rawValue)
-            let fps = first.frameRate > 1 ? min(first.frameRate, 60) : 30
-            let total = infos.reduce(0) { $0 + $1.duration }
+        }
+    }
 
-            let name = inputs[0].deletingPathExtension().lastPathComponent + " merged"
-            let output = context.output(named: name, extension: "mp4")
-            let args = MergeVideosView.arguments(inputs: inputs, infos: infos, width: width, height: height,
-                                                 fps: fps, output: output)
-            context.setStatus("Merging \(inputs.count) clips…")
-            try await FFmpeg.run(args, duration: total) { context.setProgress($0) }
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("video.merge.size") private var size = Size.first
+
+        var body: some View {
+            OptionPicker("Output size", selection: $size, choices: Size.allCases.map { OptionChoice($0, $0.label) })
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .all { [size] inputs, context in
+                context.setStatus("Reading clips…")
+                var infos: [MediaInfo] = []
+                for input in inputs {
+                    let info = try await FFmpeg.probe(input)
+                    guard info.hasVideo else { throw ToolError.failed("“\(input.lastPathComponent)” has no video.") }
+                    infos.append(info)
+                }
+                let first = infos[0]
+                let firstSize = first.displaySize
+                let (width, height) = MergeVideosView.outputSize(first: firstSize, target: size.rawValue)
+                let fps = first.frameRate > 1 ? min(first.frameRate, 60) : 30
+                let total = infos.reduce(0) { $0 + $1.duration }
+
+                let name = inputs[0].deletingPathExtension().lastPathComponent + " merged"
+                let output = context.output(named: name, extension: "mp4")
+                let args = MergeVideosView.arguments(inputs: inputs, infos: infos, width: width, height: height,
+                                                     fps: fps, output: output)
+                context.setStatus("Merging \(inputs.count) clips…")
+                try await FFmpeg.run(args, duration: total) { context.setProgress($0) }
+            }
         }
     }
 

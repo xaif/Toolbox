@@ -5,7 +5,7 @@ struct ConvertVideoView: View {
     let tool: Tool
 
     enum Format: String, CaseIterable, Identifiable {
-        case mp4, mov, webm, mkv, avi
+        case mp4, mov, webm, mkv, avi, wmv
         var id: Self { self }
         var label: String {
             switch self {
@@ -14,6 +14,7 @@ struct ConvertVideoView: View {
             case .webm: "WebM (VP9)"
             case .mkv: "MKV (Matroska)"
             case .avi: "AVI (MPEG-4)"
+            case .wmv: "WMV (Windows Media)"
             }
         }
         var note: String {
@@ -23,27 +24,37 @@ struct ConvertVideoView: View {
             case .webm: "Open format for the web. Encoding is slower."
             case .mkv: "Flexible container that holds almost any codec."
             case .avi: "For older players and devices."
+            case .wmv: "For Windows Media players and legacy systems."
             }
         }
     }
 
-    @State private var format = Format.mp4
-    @State private var remux = true
-
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.videoInputs, actionTitle: "Convert", verb: "Converting", noun: "videos") {
-            Picker("Format", selection: $format) {
-                ForEach(Format.allCases) { Text($0.label).tag($0) }
+        BatchToolView(tool: tool, accepts: UTType.videoInputs, actionTitle: "Convert", noun: "videos", job: { Settings().job(for: tool) }) {
+            Settings()
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("video.convert.format") private var format = Format.mp4
+        @AppStorage("video.convert.remux") private var remux = true
+
+        var body: some View {
+            OptionPicker("Format", selection: $format, choices: Format.allCases.map { OptionChoice($0, $0.label) })
+            OptionNote(format.note)
+            OptionToggle("Copy streams without re-encoding when the codecs allow it (fast, lossless)", isOn: $remux)
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .each(verb: "Converting") { [format, remux] input, context, progress in
+                let info = try await FFmpeg.probe(input)
+                guard info.hasVideo else { throw ToolError.failed("No video stream found.") }
+                let container = format.rawValue
+                let output = context.output(for: input, extension: container)
+                try await FFmpeg.run(ConvertVideoView.arguments(input: input, output: output, info: info, format: format, remux: remux),
+                                     duration: info.duration, progress: progress)
             }
-            Text(format.note).font(.callout).foregroundStyle(.secondary)
-            Toggle("Copy streams without re-encoding when the codecs allow it (fast, lossless)", isOn: $remux)
-        } each: { [format, remux] input, context, progress in
-            let info = try await FFmpeg.probe(input)
-            guard info.hasVideo else { throw ToolError.failed("No video stream found.") }
-            let container = format.rawValue
-            let output = context.output(for: input, extension: container)
-            try await FFmpeg.run(ConvertVideoView.arguments(input: input, output: output, info: info, format: format, remux: remux),
-                                 duration: info.duration, progress: progress)
         }
     }
 
@@ -63,6 +74,8 @@ struct ConvertVideoView: View {
                          "-deadline", "good", "-cpu-used", "2", "-pix_fmt", "yuv420p"]
             case .avi:
                 args += ["-c:v", "mpeg4", "-vtag", "xvid", "-q:v", "3", "-pix_fmt", "yuv420p"]
+            case .wmv:
+                args += ["-c:v", "wmv2", "-q:v", "3", "-pix_fmt", "yuv420p"]
             }
         }
 
@@ -74,6 +87,7 @@ struct ConvertVideoView: View {
             switch format {
             case .webm: args += ["-c:a", "libopus", "-b:a", "128k"]
             case .avi: args += ["-c:a", "libmp3lame", "-q:a", "2"]
+            case .wmv: args += ["-c:a", "wmav2", "-b:a", "192k"]
             default: args += ["-c:a", "aac", "-b:a", "192k"]
             }
         }

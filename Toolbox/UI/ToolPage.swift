@@ -153,8 +153,8 @@ struct JobBar: View {
     var canRun = true
     /// Shown when idle and the action is disabled, e.g. "Add at least two files".
     var hint: String?
-    /// Shown when idle and ready. Defaults to the "originals untouched" note.
-    var idleMessage = "Originals stay untouched. Results go to a new folder."
+    /// Shown when idle and ready. Defaults to a note on where results go.
+    var idleMessage: String?
     var action: () -> Void
 
     var body: some View {
@@ -184,7 +184,7 @@ struct JobBar: View {
             if let hint, !canRun {
                 Text(hint).foregroundStyle(.secondary)
             } else {
-                Text(idleMessage)
+                Text(idleMessage ?? OutputManager.destinationNote)
                     .foregroundStyle(.tertiary)
             }
         case .running:
@@ -204,7 +204,9 @@ struct JobBar: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 if let folder = runner.outputFolder {
-                    Text("Saved to \(folder.lastPathComponent)").lineLimit(1).truncationMode(.middle)
+                    let folders = Set(runner.outputs.map { $0.deletingLastPathComponent() })
+                    Text(folders.count > 1 ? "Saved next to the originals" : "Saved to \(folder.lastPathComponent)")
+                        .lineLimit(1).truncationMode(.middle)
                     Button("Show in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting(runner.outputs.isEmpty ? [folder] : runner.outputs)
                     }

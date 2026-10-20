@@ -638,6 +638,7 @@ enum PDFOps {
     }
 
     static func fileSize(_ url: URL) -> Int64 {
-        Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        // URL resource values can cache the size while a compression candidate is rewritten.
+        ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.int64Value ?? 0
     }
 }

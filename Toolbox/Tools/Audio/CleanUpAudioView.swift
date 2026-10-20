@@ -44,52 +44,59 @@ struct CleanUpAudioView: View {
         var level: Double
     }
 
-    @State private var strength = Strength.medium
-    @State private var removeRumble = true
-    @State private var removeClicks = false
-    @State private var deEss = false
-    @State private var normalize = true
-
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.mediaInputs, actionTitle: "Clean Up", verb: "Cleaning", noun: "recordings") {
-            Picker("Noise reduction", selection: $strength) {
-                ForEach(Strength.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            Toggle("Remove low rumble and hum (below 80 Hz)", isOn: $removeRumble)
-            Toggle("Remove clicks and pops", isOn: $removeClicks)
-            Toggle("Soften harsh “s” sounds", isOn: $deEss)
-            Toggle("Even out loudness (−16 LUFS, good for podcasts and video)", isOn: $normalize)
-            Text("Each file is analyzed first so noise removal matches its background noise. Works on audio files and on the soundtrack of videos; video is copied without re-encoding.")
-                .font(.callout).foregroundStyle(.secondary)
-        } each: { [strength, removeRumble, removeClicks, deEss, normalize] input, context, progress in
-            let info = try await FFmpeg.probe(input)
-            guard info.hasAudio else { throw ToolError.failed("No audio found.") }
+        BatchToolView(tool: tool, accepts: UTType.mediaInputs, actionTitle: "Clean Up", noun: "recordings", job: { Settings().job(for: tool) }) {
+            Settings()
+        }
+    }
 
-            let noise = await CleanUpAudioView.measureNoise(input)
-            progress(0.1)
-            let filters = CleanUpAudioView.filterChain(strength: strength, removeRumble: removeRumble, removeClicks: removeClicks,
-                                                       deEss: deEss, normalize: normalize, noise: noise,
-                                                       sampleRate: await AudioProbe.sampleRate(of: input))
-            let ext = input.pathExtension.lowercased()
-            var args = ["-i", input.path]
-            let output: URL
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("audio.cleanup.strength") private var strength = Strength.medium
+        @AppStorage("audio.cleanup.removeRumble") private var removeRumble = true
+        @AppStorage("audio.cleanup.removeClicks") private var removeClicks = false
+        @AppStorage("audio.cleanup.deEss") private var deEss = false
+        @AppStorage("audio.cleanup.normalize") private var normalize = true
 
-            if info.hasVideo {
-                // Keep the picture untouched; re-encode only the processed audio in a codec the container accepts.
-                let container = ["mp4", "m4v", "mov", "mkv", "webm"].contains(ext) ? ext : "mp4"
-                output = context.output(for: input, suffix: "cleaned", extension: container)
-                args += ["-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", filters]
-                args += container == "webm" ? ["-c:a", "libopus", "-b:a", "160k"] : ["-c:a", "aac", "-b:a", "192k"]
-                if container != "mkv" && container != "webm" { args += ["-movflags", "+faststart"] }
-            } else {
-                let format = AudioOutputFormat.matching(extension: ext) ?? .m4a
-                output = context.output(for: input, suffix: "cleaned", extension: format.fileExtension)
-                args += ["-map", "0:a:0", "-af", filters] + format.highQualityArguments
+        var body: some View {
+            OptionPicker("Noise reduction", selection: $strength, style: .segmented,
+                         choices: Strength.allCases.map { OptionChoice($0, $0.label) })
+            OptionToggle("Remove low rumble and hum (below 80 Hz)", isOn: $removeRumble)
+            OptionToggle("Remove clicks and pops", isOn: $removeClicks)
+            OptionToggle("Soften harsh “s” sounds", isOn: $deEss)
+            OptionToggle("Even out loudness (−16 LUFS, good for podcasts and video)", isOn: $normalize)
+            OptionNote("Each file is analyzed first so noise removal matches its background noise. Works on audio files and on the soundtrack of videos; video is copied without re-encoding.")
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .each(verb: "Cleaning") { [strength, removeRumble, removeClicks, deEss, normalize] input, context, progress in
+                let info = try await FFmpeg.probe(input)
+                guard info.hasAudio else { throw ToolError.failed("No audio found.") }
+
+                let noise = await CleanUpAudioView.measureNoise(input)
+                progress(0.1)
+                let filters = CleanUpAudioView.filterChain(strength: strength, removeRumble: removeRumble, removeClicks: removeClicks,
+                                                           deEss: deEss, normalize: normalize, noise: noise,
+                                                           sampleRate: await AudioProbe.sampleRate(of: input))
+                let ext = input.pathExtension.lowercased()
+                var args = ["-i", input.path]
+                let output: URL
+
+                if info.hasVideo {
+                    // Keep the picture untouched; re-encode only the processed audio in a codec the container accepts.
+                    let container = ["mp4", "m4v", "mov", "mkv", "webm"].contains(ext) ? ext : "mp4"
+                    output = context.output(for: input, suffix: "cleaned", extension: container)
+                    args += ["-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", filters]
+                    args += container == "webm" ? ["-c:a", "libopus", "-b:a", "160k"] : ["-c:a", "aac", "-b:a", "192k"]
+                    if container != "mkv" && container != "webm" { args += ["-movflags", "+faststart"] }
+                } else {
+                    let format = AudioOutputFormat.matching(extension: ext) ?? .m4a
+                    output = context.output(for: input, suffix: "cleaned", extension: format.fileExtension)
+                    args += ["-map", "0:a:0", "-af", filters] + format.highQualityArguments
+                }
+                args += ["-map_metadata", "0", output.path]
+                try await FFmpeg.run(args, duration: info.duration) { progress(0.1 + 0.9 * $0) }
             }
-            args += ["-map_metadata", "0", output.path]
-            try await FFmpeg.run(args, duration: info.duration) { progress(0.1 + 0.9 * $0) }
         }
     }
 

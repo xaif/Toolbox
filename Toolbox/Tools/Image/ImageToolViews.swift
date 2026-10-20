@@ -6,30 +6,37 @@ import UniformTypeIdentifiers
 struct ConvertImagesView: View {
     let tool: Tool
 
-    @State private var format = ImageFormat.jpeg
-    @State private var quality = 0.85
-    @State private var keepMetadata = true
-
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Convert", verb: "Converting", noun: "images") {
-            Picker("Format", selection: $format) {
-                ForEach(ImageFormat.writable) { Text($0.label).tag($0) }
-            }
+        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Convert", noun: "images", job: { Settings().job(for: tool) }) {
+            Settings()
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("image.convert.format") private var format = ImageFormat.jpeg
+        @AppStorage("image.convert.quality") private var quality = 0.85
+        @AppStorage("image.convert.keepMetadata") private var keepMetadata = true
+
+        var body: some View {
+            OptionPicker("Format", selection: $format, choices: ImageFormat.writable.map { OptionChoice($0, $0.label) })
             if format.supportsQuality {
                 ImageQualitySlider(quality: $quality)
             }
-            Toggle("Keep metadata (date, camera, location)", isOn: $keepMetadata)
+            OptionToggle("Keep metadata (date, camera, location)", isOn: $keepMetadata)
             if !format.supportsAlpha {
-                Text("\(format.label) has no transparency, so transparent areas become white.")
-                    .font(.callout).foregroundStyle(.secondary)
+                OptionNote("\(format.label) has no transparency, so transparent areas become white.")
             } else if format == .gif {
-                Text("Animated GIFs stay animated. Other images are saved as a single frame.")
-                    .font(.callout).foregroundStyle(.secondary)
+                OptionNote("Animated GIFs stay animated. Other images are saved as a single frame.")
             }
-        } each: { [format, quality, keepMetadata] input, context, progress in
-            let output = context.output(for: input, extension: format.fileExtension)
-            try ImageIOHelpers.reencode(input, to: output, format: format, quality: quality, keepMetadata: keepMetadata)
-            progress(1)
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .each(verb: "Converting") { [format, quality, keepMetadata] input, context, progress in
+                let output = context.output(for: input, extension: format.fileExtension)
+                try ImageIOHelpers.reencode(input, to: output, format: format, quality: quality, keepMetadata: keepMetadata)
+                progress(1)
+            }
         }
     }
 }
@@ -51,10 +58,6 @@ struct CompressImagesView: View {
         }
     }
 
-    @State private var target = Target.keep
-    @State private var quality = 0.7
-    @State private var maxDimension = 0
-    @State private var keepMetadata = false
     @State private var runner: JobRunner
 
     init(tool: Tool) {
@@ -63,47 +66,67 @@ struct CompressImagesView: View {
     }
 
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Compress", verb: "Compressing", noun: "images") {
-            Picker("Save as", selection: $target) {
-                ForEach(Target.allCases) { Text($0.label).tag($0) }
-            }
-            ImageQualitySlider(quality: $quality)
-            Picker("Max size", selection: $maxDimension) {
-                Text("Keep dimensions").tag(0)
-                Text("4096 px").tag(4096)
-                Text("2560 px").tag(2560)
-                Text("1920 px").tag(1920)
-                Text("1280 px").tag(1280)
-                Text("800 px").tag(800)
-            }
-            Toggle("Keep metadata (date, camera, location)", isOn: $keepMetadata)
-            Text("Quality applies to JPEG and HEIC. PNG, GIF and TIFF are lossless, so pick JPEG/HEIC or a max size for big savings. If a result would be larger than the original, the original is kept.")
-                .font(.callout).foregroundStyle(.secondary)
+        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Compress", noun: "images", job: { Settings().job(for: tool) }) {
+            Settings()
             if let summary = savingsSummary {
                 Label(summary, systemImage: "chart.bar.xaxis")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.green)
             }
-        } each: { [target, quality, maxDimension, keepMetadata] input, context, progress in
-            let format: ImageFormat = switch target {
-            case .keep: ImageIOHelpers.keepFormat(for: input)
-            case .jpeg: .jpeg
-            case .heic: ImageFormat.writable.contains(.heic) ? .heic : .jpeg
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("image.compress.target") private var target = Target.keep
+        @AppStorage("image.compress.quality") private var quality = 0.7
+        @AppStorage("image.compress.maxDimension") private var maxDimension = 0
+        @AppStorage("image.compress.keepMetadata") private var keepMetadata = false
+
+        var body: some View {
+            OptionPicker("Save as", selection: $target, choices: Target.allCases.map { OptionChoice($0, $0.label) })
+            CompressionGoalControls(prefix: "image.compress.goal")
+            ImageQualitySlider(quality: $quality)
+            OptionPicker("Max size", selection: $maxDimension, choices: [
+                OptionChoice(0, "Keep dimensions"),
+                OptionChoice(4096, "4096 px"),
+                OptionChoice(2560, "2560 px"),
+                OptionChoice(1920, "1920 px"),
+                OptionChoice(1280, "1280 px"),
+                OptionChoice(800, "800 px"),
+            ])
+            OptionToggle("Keep metadata (date, camera, location)", isOn: $keepMetadata)
+            OptionNote("Quality applies to JPEG and HEIC. PNG, GIF and TIFF are lossless, so pick JPEG/HEIC or a max size for big savings. If a result would be larger than the original, the original is kept.")
+            OptionNote("Target size and percentage modes may reduce image dimensions to reach the requested size.")
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            let goal = CompressionGoal(prefix: "image.compress.goal")
+            return .each(verb: "Compressing") { [target, quality, maxDimension, keepMetadata] input, context, progress in
+                let format: ImageFormat = switch target {
+                case .keep: ImageIOHelpers.keepFormat(for: input)
+                case .jpeg: .jpeg
+                case .heic: ImageFormat.writable.contains(.heic) ? .heic : .jpeg
+                }
+                let output = context.output(for: input, suffix: "compressed", extension: format.fileExtension)
+                if let bytes = goal.bytes(for: input) {
+                    try TargetCompression.image(input, to: output, format: format, bytes: bytes, maxDimension: maxDimension, keepMetadata: keepMetadata)
+                    progress(1); return
+                }
+                try ImageIOHelpers.reencode(input, to: output, format: format, quality: quality, keepMetadata: keepMetadata) { image in
+                    guard maxDimension > 0, max(image.width, image.height) > maxDimension else { return image }
+                    let scale = Double(maxDimension) / Double(max(image.width, image.height))
+                    return try ImageIOHelpers.resize(image, width: Int((Double(image.width) * scale).rounded()),
+                                                     height: Int((Double(image.height) * scale).rounded()))
+                }
+                // Never hand back a bigger file in the same format with the same dimensions.
+                let sameFormat = ImageFormat.of(input) == format
+                if sameFormat, maxDimension == 0, FileSize.bytes(for: output) >= FileSize.bytes(for: input) {
+                    try FileManager.default.removeItem(at: output)
+                    try FileManager.default.copyItem(at: input, to: output)
+                }
+                progress(1)
             }
-            let output = context.output(for: input, extension: format.fileExtension)
-            try ImageIOHelpers.reencode(input, to: output, format: format, quality: quality, keepMetadata: keepMetadata) { image in
-                guard maxDimension > 0, max(image.width, image.height) > maxDimension else { return image }
-                let scale = Double(maxDimension) / Double(max(image.width, image.height))
-                return try ImageIOHelpers.resize(image, width: Int((Double(image.width) * scale).rounded()),
-                                                 height: Int((Double(image.height) * scale).rounded()))
-            }
-            // Never hand back a bigger file in the same format with the same dimensions.
-            let sameFormat = ImageFormat.of(input) == format
-            if sameFormat, maxDimension == 0, FileSize.bytes(for: output) >= FileSize.bytes(for: input) {
-                try FileManager.default.removeItem(at: output)
-                try FileManager.default.copyItem(at: input, to: output)
-            }
-            progress(1)
         }
     }
 
@@ -140,56 +163,51 @@ struct ResizeImagesView: View {
         }
     }
 
-    @State private var mode = Mode.fit
-    @State private var percent = 50.0
-    @State private var width = 1920
-    @State private var height = 1080
-    @State private var allowEnlarge = false
-
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Resize", verb: "Resizing", noun: "images") {
-            Picker("Resize by", selection: $mode) {
-                ForEach(Mode.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
+        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Resize", noun: "images",
+                      job: { Settings().job(for: tool) }) {
+            Settings()
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("image.resize.mode") private var mode = Mode.fit
+        @AppStorage("image.resize.percent") private var percent = 50.0
+        @AppStorage("image.resize.width") private var width = 1920
+        @AppStorage("image.resize.height") private var height = 1080
+        @AppStorage("image.resize.allowEnlarge") private var allowEnlarge = false
+
+        var body: some View {
+            OptionPicker("Resize by", selection: $mode, style: .segmented, choices: Mode.allCases.map { OptionChoice($0, $0.label) })
 
             switch mode {
             case .percent:
-                LabeledContent("Scale") {
-                    HStack {
-                        Slider(value: $percent, in: 5...400, step: 5).frame(maxWidth: 260)
-                        Text("\(Int(percent))%").monospacedDigit().frame(width: 50, alignment: .trailing)
-                    }
-                }
+                OptionSlider("Scale", value: $percent, in: 5...400, step: 5) { "\(Int($0))%" }
             case .fit, .exact:
-                LabeledContent(mode == .fit ? "Fit inside" : "Size") {
-                    HStack {
-                        ImagePixelField(value: $width)
-                        Text("×").foregroundStyle(.secondary)
-                        ImagePixelField(value: $height)
-                        Text("px").foregroundStyle(.secondary)
-                    }
-                }
+                OptionSizeFields(mode == .fit ? "Fit inside" : "Size", width: $width, height: $height)
             case .width:
-                LabeledContent("Width") { HStack { ImagePixelField(value: $width); Text("px").foregroundStyle(.secondary) } }
+                OptionNumberField("Width", value: $width, format: .number.grouping(.never), unit: "px", in: 1...50_000)
             case .height:
-                LabeledContent("Height") { HStack { ImagePixelField(value: $height); Text("px").foregroundStyle(.secondary) } }
+                OptionNumberField("Height", value: $height, format: .number.grouping(.never), unit: "px", in: 1...50_000)
             }
             if mode != .percent && mode != .exact {
-                Toggle("Enlarge images smaller than this", isOn: $allowEnlarge)
+                OptionToggle("Enlarge images smaller than this", isOn: $allowEnlarge)
             }
-            Text(mode == .exact ? "Exact size stretches images that have a different shape." : "Proportions are always kept.")
-                .font(.callout).foregroundStyle(.secondary)
-        } each: { [mode, percent, width, height, allowEnlarge] input, context, progress in
-            let format = ImageIOHelpers.keepFormat(for: input)
-            let output = context.output(for: input, suffix: "resized", extension: format.fileExtension)
-            try ImageIOHelpers.reencode(input, to: output, format: format, quality: 0.92) { image in
-                let size = ResizeImagesView.targetSize(width: image.width, height: image.height, mode: mode, percent: percent,
-                                                       targetWidth: width, targetHeight: height, allowEnlarge: allowEnlarge)
-                return try ImageIOHelpers.resize(image, width: size.width, height: size.height)
+            OptionNote(mode == .exact ? "Exact size stretches images that have a different shape." : "Proportions are always kept.")
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .each(verb: "Resizing") { [mode, percent, width, height, allowEnlarge] input, context, progress in
+                let format = ImageIOHelpers.keepFormat(for: input)
+                let output = context.output(for: input, suffix: "resized", extension: format.fileExtension)
+                try ImageIOHelpers.reencode(input, to: output, format: format, quality: 0.92) { image in
+                    let size = ResizeImagesView.targetSize(width: image.width, height: image.height, mode: mode, percent: percent,
+                                                           targetWidth: width, targetHeight: height, allowEnlarge: allowEnlarge)
+                    return try ImageIOHelpers.resize(image, width: size.width, height: size.height)
+                }
+                progress(1)
             }
-            progress(1)
         }
     }
 
@@ -251,23 +269,32 @@ struct RotateImagesView: View {
         }
     }
 
-    @State private var operation = Operation.right
-
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Rotate", verb: "Rotating", noun: "images") {
-            Picker("Action", selection: $operation) {
-                ForEach(Operation.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
+        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Rotate", noun: "images",
+                      job: { Settings().job(for: tool) }) {
+            Settings()
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("image.rotate.operation") private var operation = Operation.right
+
+        var body: some View {
+            OptionPicker("Action", selection: $operation, style: .radioGroup,
+                         choices: Operation.allCases.map { OptionChoice($0, $0.label, symbol: $0.symbol) })
+            OptionNote("Photos are first turned upright using their camera orientation, so they look the same in every app.")
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .each(verb: "Rotating") { [operation] input, context, progress in
+                let format = ImageIOHelpers.keepFormat(for: input)
+                let output = context.output(for: input, suffix: "rotated", extension: format.fileExtension)
+                try ImageIOHelpers.reencode(input, to: output, format: format, quality: 0.95) { image in
+                    try ImageIOHelpers.apply(operation.orientation, to: image)
+                }
+                progress(1)
             }
-            .pickerStyle(.radioGroup)
-            Text("Photos are first turned upright using their camera orientation, so they look the same in every app.")
-                .font(.callout).foregroundStyle(.secondary)
-        } each: { [operation] input, context, progress in
-            let format = ImageIOHelpers.keepFormat(for: input)
-            let output = context.output(for: input, suffix: "rotated", extension: format.fileExtension)
-            try ImageIOHelpers.reencode(input, to: output, format: format, quality: 0.95) { image in
-                try ImageIOHelpers.apply(operation.orientation, to: image)
-            }
-            progress(1)
         }
     }
 }
@@ -278,7 +305,7 @@ struct RemoveMetadataView: View {
     let tool: Tool
 
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Remove Metadata", verb: "Cleaning", noun: "images") {
+        BatchToolView(tool: tool, accepts: UTType.imageInputs, actionTitle: "Remove Metadata", noun: "images", job: { job }) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Removes:").font(.callout.weight(.medium))
                 Label("Location (GPS coordinates)", systemImage: "location.slash")
@@ -289,9 +316,14 @@ struct RemoveMetadataView: View {
             .foregroundStyle(.secondary)
             Text("Pixels stay as they are and the color profile is kept. Rotated photos are turned upright so they don't appear sideways once the orientation tag is gone.")
                 .font(.callout).foregroundStyle(.secondary)
-        } each: { input, context, progress in
+        }
+    }
+
+    /// What the action button runs, with the current settings. The launcher's quick action runs it too.
+    var job: ToolJob {
+        .each(verb: "Cleaning") { input, context, progress in
             let format = ImageIOHelpers.keepFormat(for: input)
-            let output = context.output(for: input, extension: format.fileExtension)
+            let output = context.output(for: input, suffix: "clean", extension: format.fileExtension)
             try ImageMetadataStripper.strip(input, to: output, format: format)
             progress(1)
         }
@@ -358,24 +390,8 @@ struct ImageQualitySlider: View {
     @Binding var quality: Double
 
     var body: some View {
-        LabeledContent("Quality") {
-            HStack {
-                Text("Smaller").font(.caption).foregroundStyle(.secondary)
-                Slider(value: $quality, in: 0.1...1, step: 0.05).frame(maxWidth: 240)
-                Text("Better").font(.caption).foregroundStyle(.secondary)
-                Text("\(Int((quality * 100).rounded()))%").monospacedDigit().frame(width: 44, alignment: .trailing)
-            }
+        OptionSlider("Quality", value: $quality, in: 0.1...1, step: 0.05, minimumLabel: "Smaller", maximumLabel: "Better") {
+            "\(Int(($0 * 100).rounded()))%"
         }
-    }
-}
-
-struct ImagePixelField: View {
-    @Binding var value: Int
-
-    var body: some View {
-        TextField("px", value: $value, format: .number.grouping(.never))
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 80)
-            .onChange(of: value) { if value < 1 { value = 1 } else if value > 50_000 { value = 50_000 } }
     }
 }

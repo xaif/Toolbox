@@ -4,7 +4,7 @@ enum PDFTools {
     static let all: [Tool] = [
         Tool(id: "pdf.merge", name: "Merge PDFs", shortName: "Merge", category: .pdf, symbol: "doc.on.doc",
              summary: "Combine several PDFs into one document.",
-             keywords: ["combine", "join", "append"], input: .pdfs) { PDFMergeView(tool: $0) },
+             keywords: ["combine", "join", "append"], input: .pdfs, quickAction: QuickAction("Merge", settings: PDFMergeView.Settings.self, minimumFiles: 2, combinesFiles: true)) { PDFMergeView(tool: $0) },
         Tool(id: "pdf.split", name: "Split PDF", shortName: "Split", category: .pdf, symbol: "square.split.2x1",
              summary: "Break a PDF into single pages or page ranges.",
              keywords: ["separate", "pages", "ranges"], input: .pdfs) { PDFSplitView(tool: $0) },
@@ -19,7 +19,7 @@ enum PDFTools {
              keywords: ["select pages", "copy pages"], input: .pdf) { PDFExtractPagesView(tool: $0) },
         Tool(id: "pdf.compress", name: "Compress PDF", shortName: "Compress", category: .pdf, symbol: "arrow.down.right.and.arrow.up.left",
              summary: "Shrink PDFs by optimizing images.",
-             keywords: ["reduce", "smaller", "size", "optimize"], input: .pdfs) { PDFCompressView(tool: $0) },
+             keywords: ["reduce", "smaller", "size", "optimize"], input: .pdfs, quickAction: QuickAction("Compress", settings: PDFCompressView.Settings.self)) { PDFCompressView(tool: $0) },
         Tool(id: "pdf.sign", name: "Sign PDF", shortName: "Sign", category: .pdf, symbol: "signature",
              summary: "Draw or type your signature and place it on a page.",
              keywords: ["signature", "autograph", "fill"], input: .pdf) { PDFSignView(tool: $0) },
@@ -31,9 +31,9 @@ enum PDFTools {
              keywords: ["decrypt", "unlock", "unprotect"], input: .pdfs) { PDFRemovePasswordView(tool: $0) },
         Tool(id: "pdf.images-to-pdf", name: "Images to PDF", category: .pdf, symbol: "photo.on.rectangle",
              summary: "Turn photos and scans into a single PDF.",
-             keywords: ["jpg to pdf", "scan", "photos"], input: .images) { PDFImagesToPDFView(tool: $0) },
+             keywords: ["jpg to pdf", "scan", "photos"], input: .images, quickAction: QuickAction("Create PDF from", settings: PDFImagesToPDFView.Settings.self, combinesFiles: true)) { PDFImagesToPDFView(tool: $0) },
         Tool(id: "pdf.to-images", name: "PDF to Images", category: .pdf, symbol: "photo.stack",
              summary: "Export every page as a PNG or JPEG.",
-             keywords: ["pdf to jpg", "pdf to png", "export pages"], input: .pdfs) { PDFToImagesView(tool: $0) },
+             keywords: ["pdf to jpg", "pdf to png", "export pages", "pdf to zip"], input: .pdfs, quickAction: QuickAction("Export Pages of", settings: PDFToImagesView.Settings.self)) { PDFToImagesView(tool: $0) },
     ]
 }

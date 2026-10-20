@@ -186,7 +186,7 @@ struct SummarizeView: View {
     @State private var runner: JobRunner
     @State private var saver: JobRunner
     @State private var input = ""
-    @State private var sourceName: String?
+    @State private var sourceURL: URL?
     @State private var loadingFile: String?
     @State private var loadError: String?
     @State private var previews = AIPreviewStore.shared
@@ -223,13 +223,13 @@ struct SummarizeView: View {
                     } else if let loadError {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         Text(loadError).foregroundStyle(.secondary).lineLimit(2)
-                    } else if let sourceName {
+                    } else if let sourceURL {
                         Image(systemName: "doc.text").foregroundStyle(.secondary)
-                        Text(sourceName).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        Text(sourceURL.lastPathComponent).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     }
                     Spacer()
                     Text(AIText.countDescription(input)).font(.caption).foregroundStyle(.secondary)
-                    Button("Clear") { input = ""; sourceName = nil; loadError = nil }
+                    Button("Clear") { input = ""; sourceURL = nil; loadError = nil }
                         .disabled(input.isEmpty)
                 }
             }
@@ -323,7 +323,7 @@ struct SummarizeView: View {
             do {
                 let text = try await AIText.extract(from: url)
                 input = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                sourceName = url.lastPathComponent
+                sourceURL = url
             } catch {
                 loadError = error.localizedDescription
             }
@@ -350,9 +350,10 @@ struct SummarizeView: View {
 
     private func save() {
         let text = summary + "\n"
-        let base = sourceName.map { ($0 as NSString).deletingPathExtension + " summary" } ?? "Summary"
+        let source = sourceURL
+        let base = source.map { $0.deletingPathExtension().lastPathComponent + " summary" } ?? "Summary"
         saver.start(title: tool.name) { context in
-            try AIText.write(text, to: context.output(named: base, extension: "md"))
+            try AIText.write(text, to: context.output(named: base, extension: "md", nextTo: source))
         }
     }
 }

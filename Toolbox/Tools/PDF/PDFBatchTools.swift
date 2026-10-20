@@ -6,18 +6,31 @@ import UniformTypeIdentifiers
 
 struct PDFMergeView: View {
     let tool: Tool
-    @State private var bookmarks = true
 
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.pdfInputs, actionTitle: "Merge", noun: "PDFs") {
-            Toggle("Add a bookmark for each file", isOn: $bookmarks)
+        BatchToolView(tool: tool, accepts: UTType.pdfInputs, reorderable: true, minimumFiles: 2,
+                      actionTitle: "Merge", noun: "PDFs", job: { Settings().job(for: tool) }) {
+            Settings()
             Text("Drag files in the list to change their order. Existing bookmarks are kept.")
                 .font(.callout).foregroundStyle(.secondary)
-        } all: { [bookmarks] inputs, context in
-            context.setStatus("Merging \(inputs.count) PDFs")
-            let merged = try PDFOps.merge(inputs, bookmarks: bookmarks) { context.setProgress($0 * 0.9) }
-            context.setStatus("Saving")
-            try PDFOps.write(merged, to: context.output(named: "Merged", extension: "pdf"))
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("pdf.merge.bookmarks") private var bookmarks = true
+
+        var body: some View {
+            OptionToggle("Add a bookmark for each file", isOn: $bookmarks)
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .all { [bookmarks] inputs, context in
+                context.setStatus("Merging \(inputs.count) PDFs")
+                let merged = try PDFOps.merge(inputs, bookmarks: bookmarks) { context.setProgress($0 * 0.9) }
+                context.setStatus("Saving")
+                try PDFOps.write(merged, to: context.output(named: "Merged", extension: "pdf"))
+            }
         }
     }
 }
@@ -44,9 +57,6 @@ struct PDFCompressView: View {
 
     @State private var runner: JobRunner
     @State private var report = PDFCompressionReport()
-    @State private var level = PDFCompressionLevel.recommended
-    @State private var dpi = 150.0
-    @State private var quality = 0.6
 
     init(tool: Tool) {
         self.tool = tool
@@ -57,32 +67,8 @@ struct PDFCompressView: View {
         ToolPage(tool: tool, runner: runner) {
             FileListInput(files: $runner.inputs, accepts: UTType.pdfInputs, noun: "PDFs")
                 .disabled(runner.isRunning)
-            ToolSection("Options") {
-                Picker("Compression", selection: $level) {
-                    Text("Light").tag(PDFCompressionLevel.light)
-                    Text("Recommended").tag(PDFCompressionLevel.recommended)
-                    Text("Maximum").tag(PDFCompressionLevel.maximum)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                Text(levelDescription).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if level == .maximum {
-                    Picker("Resolution", selection: $dpi) {
-                        Text("96 DPI (screen)").tag(96.0)
-                        Text("150 DPI (balanced)").tag(150.0)
-                        Text("200 DPI (print)").tag(200.0)
-                    }
-                    .fixedSize()
-                    LabeledContent("Image quality") {
-                        HStack {
-                            Slider(value: $quality, in: 0.3...0.9, step: 0.05).frame(width: 200)
-                            Text("\(Int(quality * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
-                        }
-                    }
-                }
-            }
-            .disabled(runner.isRunning)
+            ToolSection("Options") { Settings() }
+                .disabled(runner.isRunning)
             if !report.entries.isEmpty, runner.phase == .succeeded {
                 ToolSection("Savings") {
                     ForEach(report.entries) { entry in
@@ -106,24 +92,55 @@ struct PDFCompressView: View {
         .onChange(of: runner.inputs) { if !runner.isRunning { runner.reset() } }
     }
 
-    private var levelDescription: String {
-        switch level {
-        case .light: "Recompresses images as JPEG. Text and vector graphics are untouched."
-        case .recommended: "Recompresses and downsamples images for on-screen reading. Best for most documents."
-        case .maximum: "Turns each page into a single image. Smallest files, ideal for scans — but text is no longer selectable."
-        }
+    private func run() {
+        report.entries = []
+        runner.start(Settings().job(report: report), title: tool.name, inputs: runner.inputs)
     }
 
-    private func run() {
-        let inputs = runner.inputs
-        let level = level, dpi = CGFloat(dpi), quality = CGFloat(quality)
-        let report = report
-        report.entries = []
-        runner.start(title: tool.name) { context in
-            try await context.forEach(inputs, verb: "Compressing") { input, progress in
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("pdf.compress.level") private var level = PDFCompressionLevel.recommended
+        @AppStorage("pdf.compress.dpi") private var dpi = 150.0
+        @AppStorage("pdf.compress.quality") private var quality = 0.6
+
+        var body: some View {
+            CompressionGoalControls(prefix: "pdf.compress.goal")
+            OptionPicker("Compression", selection: $level, style: .segmented, choices: [
+                OptionChoice(PDFCompressionLevel.light, "Light"),
+                OptionChoice(PDFCompressionLevel.recommended, "Recommended"),
+                OptionChoice(PDFCompressionLevel.maximum, "Maximum"),
+            ])
+            OptionNote(levelDescription)
+            OptionNote("Target size and percentage modes render pages as images. Text will no longer be selectable in those modes.")
+            if level == .maximum {
+                OptionPicker("Resolution", selection: $dpi, choices: [
+                    OptionChoice(96.0, "96 DPI (screen)"),
+                    OptionChoice(150.0, "150 DPI (balanced)"),
+                    OptionChoice(200.0, "200 DPI (print)"),
+                ])
+                OptionSlider("Image quality", value: $quality, in: 0.3...0.9, step: 0.05) { "\(Int(($0 * 100).rounded()))%" }
+            }
+        }
+
+        private var levelDescription: String {
+            switch level {
+            case .light: "Recompresses images as JPEG. Text and vector graphics are untouched."
+            case .recommended: "Recompresses and downsamples images for on-screen reading. Best for most documents."
+            case .maximum: "Turns each page into a single image. Smallest files, ideal for scans — but text is no longer selectable."
+            }
+        }
+
+        func job(for tool: Tool) -> ToolJob? { job(report: nil) }
+
+        /// `report` collects before/after sizes for the page's Savings section.
+        func job(report: PDFCompressionReport?) -> ToolJob {
+            let level = level, dpi = CGFloat(dpi), quality = CGFloat(quality)
+            let goal = CompressionGoal(prefix: "pdf.compress.goal")
+            return .each(verb: "Compressing") { input, context, progress in
                 let document = try PDFOps.open(input)
                 let output = context.output(for: input, suffix: "compressed", extension: "pdf")
-                try PDFOps.compress(document, level: level, dpi: dpi, quality: quality, to: output, progress: progress)
+                if let bytes = goal.bytes(for: input) { try TargetCompression.pdf(document, to: output, bytes: bytes) }
+                else { try PDFOps.compress(document, level: level, dpi: dpi, quality: quality, to: output, progress: progress) }
                 let before = PDFOps.fileSize(input)
                 var after = PDFOps.fileSize(output)
                 let keptOriginal = after >= before
@@ -134,7 +151,7 @@ struct PDFCompressView: View {
                     after = before
                 }
                 let entry = PDFCompressionReport.Entry(name: input.lastPathComponent, before: before, after: after, keptOriginal: keptOriginal)
-                await MainActor.run { report.entries.append(entry) }
+                await MainActor.run { report?.entries.append(entry) }
             }
         }
     }
@@ -364,46 +381,46 @@ struct PDFImagesToPDFView: View {
         }
     }
 
-    @State private var pageSize = PDFImageLayout.PageSize.a4
-    @State private var orientation = PDFImageLayout.Orientation.auto
-    @State private var margin: CGFloat = 0
-    @State private var imageQuality = ImageQuality.high
-
     var body: some View {
         BatchToolView(tool: tool, accepts: UTType.imageInputs, reorderable: true, minimumFiles: 1,
-                      actionTitle: "Create PDF", noun: "images") {
-            Picker("Page size", selection: $pageSize) {
-                ForEach(PDFImageLayout.PageSize.allCases) { Text($0.label).tag($0) }
-            }
-            .fixedSize()
-            if pageSize != .fit {
-                Picker("Orientation", selection: $orientation) {
-                    ForEach(PDFImageLayout.Orientation.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-            Picker("Margin", selection: $margin) {
-                Text("None").tag(CGFloat(0))
-                Text("Small").tag(CGFloat(18))
-                Text("Large").tag(CGFloat(54))
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            Picker("Image quality", selection: $imageQuality) {
-                ForEach(ImageQuality.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
+                      actionTitle: "Create PDF", noun: "images", job: { Settings().job(for: tool) }) {
+            Settings()
             Text("Drag images in the list to set the page order. Each image gets its own page.")
                 .font(.callout).foregroundStyle(.secondary)
-        } all: { [pageSize, orientation, margin, imageQuality] inputs, context in
-            let layout = PDFImageLayout(pageSize: pageSize, orientation: orientation, margin: margin,
-                                        maxPixelSize: imageQuality.maxPixelSize, jpegQuality: imageQuality.jpegQuality)
-            let name = inputs.count == 1 ? inputs[0].deletingPathExtension().lastPathComponent : "Images"
-            context.setStatus("Creating PDF from \(inputs.count) image\(inputs.count == 1 ? "" : "s")")
-            try PDFOps.imagesToPDF(inputs, layout: layout, to: context.output(named: name, extension: "pdf")) {
-                context.setProgress($0)
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("pdf.images-to-pdf.pageSize") private var pageSize = PDFImageLayout.PageSize.a4
+        @AppStorage("pdf.images-to-pdf.orientation") private var orientation = PDFImageLayout.Orientation.auto
+        @AppStorage("pdf.images-to-pdf.margin") private var margin = 0.0
+        @AppStorage("pdf.images-to-pdf.imageQuality") private var imageQuality = ImageQuality.high
+
+        var body: some View {
+            OptionPicker("Page size", selection: $pageSize, choices: PDFImageLayout.PageSize.allCases.map { OptionChoice($0, $0.label) })
+            if pageSize != .fit {
+                OptionPicker("Orientation", selection: $orientation, style: .segmented,
+                             choices: PDFImageLayout.Orientation.allCases.map { OptionChoice($0, $0.label) })
+            }
+            OptionPicker("Margin", selection: $margin, style: .segmented, choices: [
+                OptionChoice(0.0, "None"),
+                OptionChoice(18.0, "Small"),
+                OptionChoice(54.0, "Large"),
+            ])
+            OptionPicker("Image quality", selection: $imageQuality, style: .segmented,
+                         choices: ImageQuality.allCases.map { OptionChoice($0, $0.label) })
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            .all { [pageSize, orientation, margin, imageQuality] inputs, context in
+                let layout = PDFImageLayout(pageSize: pageSize, orientation: orientation, margin: CGFloat(margin),
+                                            maxPixelSize: imageQuality.maxPixelSize, jpegQuality: imageQuality.jpegQuality)
+                let name = inputs.count == 1 ? inputs[0].deletingPathExtension().lastPathComponent : "Images"
+                context.setStatus("Creating PDF from \(inputs.count) image\(inputs.count == 1 ? "" : "s")")
+                try PDFOps.imagesToPDF(inputs, layout: layout, to: context.output(named: name, extension: "pdf")) {
+                    context.setProgress($0)
+                }
             }
         }
     }
@@ -413,47 +430,63 @@ struct PDFImagesToPDFView: View {
 
 struct PDFToImagesView: View {
     let tool: Tool
-    @State private var format = PDFImageFormat.png
-    @State private var quality = 0.85
-    @State private var dpi = 150.0
     @State private var pages = ""
 
     var body: some View {
-        BatchToolView(tool: tool, accepts: UTType.pdfInputs, actionTitle: "Export", verb: "Exporting", noun: "PDFs") {
-            Picker("Format", selection: $format) {
-                Text("PNG").tag(PDFImageFormat.png)
-                Text("JPEG").tag(PDFImageFormat.jpeg)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            if format == .jpeg {
-                LabeledContent("Quality") {
-                    HStack {
-                        Slider(value: $quality, in: 0.4...1, step: 0.05).frame(width: 200)
-                        Text("\(Int(quality * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
-                    }
-                }
-            }
-            Picker("Resolution", selection: $dpi) {
-                Text("72 DPI").tag(72.0)
-                Text("150 DPI").tag(150.0)
-                Text("300 DPI").tag(300.0)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
+        BatchToolView(tool: tool, accepts: UTType.pdfInputs, actionTitle: "Export", noun: "PDFs",
+                      job: { Settings().job(pages: pages) }) {
+            Settings()
             LabeledContent("Pages") {
                 TextField("All pages, or e.g. 1-3, 5", text: $pages)
                     .textFieldStyle(.roundedBorder).frame(maxWidth: 220)
             }
-            Text("Each PDF's pages are saved in their own folder.").font(.callout).foregroundStyle(.secondary)
-        } each: { [format, quality, dpi, pages] input, context, progress in
-            let document = try PDFOps.open(input)
-            let indices = pages.trimmingCharacters(in: .whitespaces).isEmpty
-                ? PDFOps.allPages(document)
-                : try PDFOps.indices(pages, pageCount: document.pageCount)
-            let folder = try context.outputFolder(named: input.deletingPathExtension().lastPathComponent)
-            try PDFOps.exportImages(document, pages: indices, to: folder, format: format,
-                                    quality: CGFloat(quality), dpi: CGFloat(dpi), progress: progress)
+        }
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    /// The page range is per document, so it's only on this page; the launcher exports every page.
+    struct Settings: ToolSettings {
+        @AppStorage("pdf.to-images.format") private var format = PDFImageFormat.png
+        @AppStorage("pdf.to-images.quality") private var quality = 0.85
+        @AppStorage("pdf.to-images.dpi") private var dpi = 150.0
+        @AppStorage("pdf.to-images.zip") private var zip = false
+
+        var body: some View {
+            OptionPicker("Format", selection: $format, style: .segmented, choices: [
+                OptionChoice(PDFImageFormat.png, "PNG"),
+                OptionChoice(PDFImageFormat.jpeg, "JPEG"),
+            ])
+            if format == .jpeg {
+                OptionSlider("Quality", value: $quality, in: 0.4...1, step: 0.05) { "\(Int(($0 * 100).rounded()))%" }
+            }
+            OptionPicker("Resolution", selection: $dpi, style: .segmented, choices: [
+                OptionChoice(72.0, "72 DPI"),
+                OptionChoice(150.0, "150 DPI"),
+                OptionChoice(300.0, "300 DPI"),
+                OptionChoice(600.0, "600 DPI"),
+            ])
+            OptionToggle("Bundle pages in a ZIP", isOn: $zip)
+            OptionNote(zip ? "Each PDF's pages are saved in one ZIP archive." : "Each PDF's pages are saved in their own folder.")
+        }
+
+        func job(for tool: Tool) -> ToolJob? { job(pages: "") }
+
+        /// `pages` is a range like "1-3, 5"; empty exports every page.
+        func job(pages: String) -> ToolJob {
+            .each(verb: "Exporting") { [format, quality, dpi, zip] input, context, progress in
+                let document = try PDFOps.open(input)
+                let indices = pages.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? PDFOps.allPages(document)
+                    : try PDFOps.indices(pages, pageCount: document.pageCount)
+                let name = input.deletingPathExtension().lastPathComponent
+                let folder = zip ? try context.makeScratchFolder() : try context.outputFolder(named: name, nextTo: input)
+                try PDFOps.exportImages(document, pages: indices, to: folder, format: format,
+                                        quality: CGFloat(quality), dpi: CGFloat(dpi)) { progress($0 * (zip ? 0.9 : 1)) }
+                if zip {
+                    try await ArchiveEngine.zipPackage(folder, to: context.output(named: name, extension: "zip", nextTo: input))
+                    try? FileManager.default.removeItem(at: folder)
+                }
+            }
         }
     }
 }

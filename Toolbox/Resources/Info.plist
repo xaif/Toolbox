@@ -25,11 +25,19 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Toolbox reads the files selected in Finder so the quick launcher can open them in a tool.</string>
+	<string>Toolbox reads Finder selections and uses Apple Pages locally to convert Pages documents.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Toolbox uses the camera to add a webcam overlay to screen recordings.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Toolbox opens the files you pick on your Desktop and saves the results next to them.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Toolbox opens the files you pick in Documents and saves the results next to them.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Toolbox opens the files you pick in Downloads, and saves recordings and results there.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Fiaxe. All rights reserved.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Share on Wi-Fi and Whiteboard let phones and computers on your network open a private link to this Mac. Nothing goes through the internet.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Toolbox uses the microphone to record audio, narrate screen recordings, and transcribe dictation.</string>
 	<key>NSScreenCaptureUsageDescription</key>

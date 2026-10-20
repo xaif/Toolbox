@@ -155,14 +155,6 @@ struct ExtractTextView: View {
 
     @State private var runner: JobRunner
     @State private var previews = AIPreviewStore.shared
-    @AppStorage("ai.ocr.language") private var languageID = ""
-    @AppStorage("ai.ocr.correction") private var languageCorrection = true
-    @AppStorage("ai.ocr.paragraphs") private var joinLines = true
-    @AppStorage("ai.ocr.forceOCR") private var forceOCR = false
-    @AppStorage("ai.ocr.copy") private var copyWhenDone = false
-
-    private static let languages = AIOCR.supportedLanguages
-        .sorted { AIOCR.displayName(for: $0).localizedCaseInsensitiveCompare(AIOCR.displayName(for: $1)) == .orderedAscending }
 
     init(tool: Tool) {
         self.tool = tool
@@ -175,17 +167,7 @@ struct ExtractTextView: View {
                 .disabled(runner.isRunning)
 
             ToolSection("Options", footnote: "Text is recognized on your Mac with Apple's Vision framework.") {
-                Picker("Language", selection: $languageID) {
-                    Text("Detect automatically").tag("")
-                    Divider()
-                    ForEach(Self.languages, id: \.maximalIdentifier) { language in
-                        Text(AIOCR.displayName(for: language)).tag(language.maximalIdentifier)
-                    }
-                }
-                Toggle("Correct recognized words using the language", isOn: $languageCorrection)
-                Toggle("Join wrapped lines into paragraphs", isOn: $joinLines)
-                Toggle("For PDFs, recognize every page even if it already has text", isOn: $forceOCR)
-                Toggle("Copy the text to the clipboard when done", isOn: $copyWhenDone)
+                Settings()
             }
             .disabled(runner.isRunning)
 
@@ -200,33 +182,60 @@ struct ExtractTextView: View {
     }
 
     private func start() {
-        let inputs = runner.inputs
-        let options = AIOCR.Options(
-            languages: languageID.isEmpty ? [] : [Locale.Language(identifier: languageID)],
-            usesLanguageCorrection: languageCorrection,
-            joinWrappedLines: joinLines)
-        let forceOCR = forceOCR
-        let copyWhenDone = copyWhenDone
-        let toolID = tool.id
-        runner.start(title: tool.name) { context in
-            let collected = AICollector()
-            try await context.forEach(inputs, verb: "Reading") { input, progress in
-                let text: String
-                if AIText.conforms(input, to: [.pdf]) {
-                    text = try await AIOCR.recognize(pdfAt: input, options: options, forceOCR: forceOCR, progress: progress)
-                } else {
-                    text = try await AIOCR.recognize(imageAt: input, options: options)
+        guard let job = Settings().job(for: tool) else { return }
+        runner.start(job, title: tool.name, inputs: runner.inputs)
+    }
+
+    /// The saved options, shown on this page and in the launcher, and the job they configure.
+    struct Settings: ToolSettings {
+        @AppStorage("ai.ocr.language") private var languageID = ""
+        @AppStorage("ai.ocr.correction") private var languageCorrection = true
+        @AppStorage("ai.ocr.paragraphs") private var joinLines = true
+        @AppStorage("ai.ocr.forceOCR") private var forceOCR = false
+        @AppStorage("ai.ocr.copy") private var copyWhenDone = false
+
+        private static let languages = AIOCR.supportedLanguages
+            .sorted { AIOCR.displayName(for: $0).localizedCaseInsensitiveCompare(AIOCR.displayName(for: $1)) == .orderedAscending }
+
+        var body: some View {
+            OptionPicker("Language", selection: $languageID, choices: [OptionChoice("", "Detect automatically")]
+                + Self.languages.enumerated().map { index, language in
+                    OptionChoice(language.maximalIdentifier, AIOCR.displayName(for: language), dividerBefore: index == 0)
+                })
+            OptionToggle("Correct recognized words using the language", isOn: $languageCorrection)
+            OptionToggle("Join wrapped lines into paragraphs", isOn: $joinLines)
+            OptionToggle("For PDFs, recognize every page even if it already has text", isOn: $forceOCR)
+            OptionToggle("Copy the text to the clipboard when done", isOn: $copyWhenDone)
+        }
+
+        func job(for tool: Tool) -> ToolJob? {
+            let options = AIOCR.Options(
+                languages: languageID.isEmpty ? [] : [Locale.Language(identifier: languageID)],
+                usesLanguageCorrection: languageCorrection,
+                joinWrappedLines: joinLines)
+            let forceOCR = forceOCR
+            let copyWhenDone = copyWhenDone
+            let toolID = tool.id
+            return .all { inputs, context in
+                let collected = AICollector()
+                try await context.forEach(inputs, verb: "Reading") { input, progress in
+                    let text: String
+                    if AIText.conforms(input, to: [.pdf]) {
+                        text = try await AIOCR.recognize(pdfAt: input, options: options, forceOCR: forceOCR, progress: progress)
+                    } else {
+                        text = try await AIOCR.recognize(imageAt: input, options: options)
+                    }
+                    try AIText.write(text + "\n", to: context.output(for: input, extension: "txt"))
+                    collected.append(inputs.count > 1 ? "# \(input.lastPathComponent)\n\n\(text)" : text)
+                    await MainActor.run {
+                        AIPreviewStore.shared.set(toolID, title: input.lastPathComponent,
+                                                  text: text.isEmpty ? "(No text found)" : text)
+                    }
                 }
-                try AIText.write(text + "\n", to: context.output(for: input, extension: "txt"))
-                collected.append(inputs.count > 1 ? "# \(input.lastPathComponent)\n\n\(text)" : text)
-                await MainActor.run {
-                    AIPreviewStore.shared.set(toolID, title: input.lastPathComponent,
-                                              text: text.isEmpty ? "(No text found)" : text)
+                if copyWhenDone {
+                    let all = collected.joined(separator: "\n\n")
+                    await MainActor.run { AIText.copy(all) }
                 }
-            }
-            if copyWhenDone {
-                let all = collected.joined(separator: "\n\n")
-                await MainActor.run { AIText.copy(all) }
             }
         }
     }
