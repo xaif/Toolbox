@@ -12,6 +12,9 @@ land; `scripts/publish.sh <version>` turns that section into the release.
 ### Fixed
 - The quick launcher no longer has a thin dark outline around its corners.
 
+### Privacy
+- Toolbox now sends basic usage data, like when it's opened and which version you're on, so we can see how it's used. It isn't linked to your name or email, and your files never leave your Mac.
+
 ## 0.3.0 — 2026-10-20
 
 ### New look
