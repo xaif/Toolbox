@@ -1,3 +1,4 @@
+import PostHog
 import SwiftUI
 
 @main
@@ -36,7 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // No Dock icon or focus stealing while tests run.
-        if Self.isTesting { NSApp.setActivationPolicy(.prohibited) }
+        if Self.isTesting { NSApp.setActivationPolicy(.prohibited); return }
+        // Before launch finishes, so PostHog sees the launch and records installs and updates.
+        let config = PostHogConfig(projectToken: "phc_qHj5kS5zqDQzMm7dzWMktUK54QR6dXcepbMJLfqSkwnT", host: "https://us.i.posthog.com")
+        PostHogSDK.shared.setup(config)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

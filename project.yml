@@ -11,12 +11,18 @@ settings:
     MARKETING_VERSION: "0.3.0"
     CURRENT_PROJECT_VERSION: "1"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
+packages:
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios.git
+    from: "3.56.0"
 targets:
   Toolbox:
     type: application
     platform: macOS
     sources:
       - path: Toolbox
+    dependencies:
+      - package: PostHog
     info:
       path: Toolbox/Resources/Info.plist
       properties:
