@@ -55,6 +55,7 @@ enum AppSettings {
             SettingsKey.launcherUsesFinderSelection: true,
             SettingsKey.launcherRunsTools: true,
             SettingsKey.showsMenuBarIcon: true,
+            SettingsKey.updatesAutomatic: true,
         ])
     }
 

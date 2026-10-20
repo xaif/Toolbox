@@ -107,6 +107,7 @@ private struct GeneralSettings: View {
                 Text("Open a tool from any app with its own hotkey. Like the launcher, it takes the files selected in Finder. To add one, highlight the tool in the quick launcher, press ⌘K and choose Set Hotkey.")
                     .foregroundStyle(.secondary)
             }
+            UpdateSettings(updater: Updater.shared)
         }
         .formStyle(.grouped)
     }
@@ -133,6 +134,36 @@ private struct GeneralSettings: View {
         panel.canCreateDirectories = true
         panel.prompt = "Choose"
         if panel.runModal() == .OK, let url = panel.url { customPath = url.path }
+    }
+}
+
+private struct UpdateSettings: View {
+    @Bindable var updater: Updater
+
+    var body: some View {
+        Section {
+            LabeledContent("Version") {
+                HStack(spacing: 10) {
+                    Text(updater.currentVersion.description).monospacedDigit()
+                    if updater.hasUpdate, let update = updater.update {
+                        Button("Update to \(update.version.description)…") { UpdateWindowController.shared.show() }
+                    } else {
+                        Button("Check for Updates…") { UpdateWindowController.shared.show(check: true) }
+                            .disabled(updater.isChecking)
+                    }
+                }
+            }
+            Toggle("Check for updates automatically", isOn: $updater.checksAutomatically)
+        } header: {
+            Text("Updates")
+        } footer: {
+            Text(footer).foregroundStyle(.secondary)
+        }
+    }
+
+    private var footer: String {
+        let checked = updater.lastChecked.map { "Last checked \($0.formatted(.relative(presentation: .named)))." } ?? "Not checked yet."
+        return "Toolbox looks for new versions on GitHub and shows what changed before you install. \(checked)"
     }
 }
 

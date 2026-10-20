@@ -1,6 +1,8 @@
 name: Build DMG
 
-# Pushing a tag like v0.1.0 builds Toolbox-0.1.0.dmg and publishes it as a GitHub release.
+# Pushing a tag like v0.1.0 builds Toolbox-0.1.0.dmg and publishes it as a GitHub release, with that
+# version's section of CHANGELOG.md as its notes (scripts/publish.sh makes the tag). Toolbox's updater reads
+# the notes above the install marker and shows them before installing.
 # Running the workflow by hand builds the DMG with project.yml's version and attaches it to the run.
 on:
   push:
@@ -15,6 +17,24 @@ jobs:
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
+
+      - name: Write release notes
+        if: github.ref_type == 'tag'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '/^## / { if (found) exit; if ($2 == v) { found = 1; next } } found' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+          cat >> "$RUNNER_TEMP/notes.md" <<'EOF'
+
+          <!-- install -->
+          ---
+          Open the DMG and drag Toolbox to Applications. Requires macOS 26 or later. Toolbox 0.2.0 and later install updates themselves.
+
+          This build isn't notarized by Apple yet, so macOS blocks it the first time. After trying to open it, go to System Settings › Privacy & Security and click **Open Anyway**.
+          EOF
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -39,6 +59,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" build/Toolbox-*.dmg \
             --title "Toolbox ${GITHUB_REF_NAME#v}" \
-            --notes "Open the DMG and drag Toolbox to Applications. Requires macOS 26 or later.
-
-          This build isn't notarized by Apple yet, so macOS blocks it the first time. After trying to open it, go to System Settings › Privacy & Security and click **Open Anyway**."
+            --notes-file "$RUNNER_TEMP/notes.md"

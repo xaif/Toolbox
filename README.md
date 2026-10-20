@@ -1,6 +1,6 @@
 # Toolbox
 
-A native macOS app (SwiftUI, macOS 26+) with 83 tools for media, photos, PDFs, documents,
+A native macOS app (SwiftUI, macOS 26+) with 84 tools for media, photos, PDFs, documents,
 archives, on-device AI and small-business billing. Includes Tangerine-style drag wheels, the 275
 advertised conversion routes (plus PDF → HTML), ihatepdf.cv's PDF suite and six file actions.
 Processing runs locally: no account, no uploads.
@@ -21,9 +21,20 @@ xcodegen generate && open Toolbox.xcodeproj   # work in Xcode
 
 The Xcode project is generated from `project.yml` and is not committed.
 
-GitHub Actions builds the DMG with `scripts/build-dmg.sh`. Push a tag like `v0.1.0` to publish
-`Toolbox-0.1.0.dmg` as a GitHub release, or run **Build DMG** from the Actions tab to get the DMG
-as a run artifact.
+GitHub Actions builds the DMG with `scripts/build-dmg.sh`. Run **Build DMG** from the Actions tab to get
+the DMG as a run artifact.
+
+### Releasing
+
+1. Add what changed under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) as you go.
+2. Run `scripts/publish.sh 0.2.0` on a clean, up-to-date `main` (`--dry-run` shows the changes first).
+   It renames the Unreleased section to the version, sets `MARKETING_VERSION` in `project.yml`,
+   commits, tags `v0.2.0` and pushes.
+3. GitHub Actions builds `Toolbox-0.2.0.dmg` and publishes the release with that version's changelog as
+   its notes. The tag fails before building if the changelog has no section for it.
+
+Toolbox checks the repository's releases on GitHub and offers the new version to everyone running 0.2.0
+or later.
 
 External engines are **not bundled**. Settings › Dependencies detects Homebrew installations,
 allows custom executable paths and offers installation:
@@ -41,11 +52,11 @@ allows custom executable paths and offers installation:
 Apple Pages must be installed for PAGES import/export; macOS asks for Automation permission.
 Core image/PDF tools, OCR, subtitles, EPUB packaging and ZIP/TAR/GZIP extraction need no extra engine.
 
-## Tools (83)
+## Tools (84)
 
 | Category | Tools |
 |---|---|
-| Video (16) | Record Screen (studio: display/window/area, camera bubble, auto-zoom on clicks, trim, captions), Download, Compress, Convert, Trim, Resize, Crop & Rotate, Change Speed, Merge, Mute, Replace Audio, Burn In Subtitles, Video to GIF, Split, Snapshots, Redact |
+| Video (17) | Record Screen (studio: display/window/area, camera bubble, auto-zoom on clicks, trim, captions), Teleprompter (under the notch or floating, scrolls as you speak, cues, phone remote), Download, Compress, Convert, Trim, Resize, Crop & Rotate, Change Speed, Merge, Mute, Replace Audio, Burn In Subtitles, Video to GIF, Split, Snapshots, Redact |
 | Audio (10) | Record, Trim (including silence at ends), Clean Up (noise removal + loudness), Extract, Convert, Compress, Normalize, Channels, Visualize, Bleep |
 | Images (14) | Convert, Compress, Resize, Rotate, Remove Background (Vision), Remove Metadata, Edit, Annotate, Add Background, Crop, Redact, Collage, Read QR Codes, Whiteboard (live drawing with browsers on your network) |
 | PDF (27) | Merge, Split, Organize, Delete Pages, Extract Pages, Compress, Sign, Add Password, Remove Password, Images to PDF, PDF to Images (up to 600 DPI, optional ZIP), Edit (retype text, text boxes, images, signatures), Compare, Rotate, Crop & Resize, Watermark, Page Numbers, Headers & Footers, Invert Colors, Flatten, Fingerprint, Make Searchable (OCR), Scan (iPhone/iPad/Mac camera), Redact (burned in, text removed), Create PDF (rich text/HTML/Markdown), Repair, Privacy Scan |
@@ -108,6 +119,23 @@ Notes:
   recordings and downloads, go to `~/Downloads`. No folder is created per job, and a clashing name
   gets a number instead of replacing a file. Change this in Settings (Downloads, a custom folder or
   ask every time).
+- **Teleprompter**: shows a script under the camera notch, or in a floating window you move and resize.
+  It's hidden from screen sharing, recordings and screenshots, and shows on every Space and over
+  full-screen apps. It scrolls while you speak (it only measures microphone loudness; nothing is
+  recorded) or at a steady pace, in words per minute. Hovering pauses it and the trackpad scrolls it.
+  Lines starting with `#` are cues you can jump to; `[notes]` are dimmed and not counted. `⌃⌥⌘T`
+  shows or hides it from any app. While it's showing, `⌃⌥⌘Space` plays or pauses, `⌃⌥⌘↑/↓` scroll,
+  `⌃⌥⌘=`/`⌃⌥⌘−` change speed, `⌃⌥⌘[`/`]` move between cues, `⌃⌥⌘B` goes back to where you were before
+  a jump and `⌃⌥⌘R` starts over. A phone on the same network can be a remote, with a dial to scroll,
+  speed and the cue list. Scripts are kept as JSON in Application Support/Toolbox/Teleprompter.
+- **Updates**: Toolbox checks GitHub for a new release shortly after it opens and every six hours
+  (Settings › General can turn this off). A waiting update shows as a banner on the home screen and at
+  the top of the launcher, and the menu bar and Toolbox menus offer Check for Updates. The Software
+  Update window shows the new version number, size, date and the changelog of every version since yours.
+  **Install Update** downloads the DMG, checks it against GitHub's SHA-256 digest, verifies the app's
+  version, bundle ID and code signature, copies it next to the running app, then quits, swaps the two
+  and reopens. If anything fails, the installed app is untouched and the window links to the release.
+  It can't update a copy running from the DMG or a translocated quarantine location.
 - **Reduce Motion** is respected automatically.
 
 ## Code layout

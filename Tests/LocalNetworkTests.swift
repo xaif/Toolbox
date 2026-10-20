@@ -221,6 +221,39 @@ final class LocalNetworkTests: XCTestCase {
         try await first.waitFor { $0.event == "op" && $0.data.contains("\"b\":\"grid\"") }
     }
 
+    func testTeleprompterRemoteServesThePageAndRunsCommands() async throws {
+        let prompter = Teleprompter.shared
+        let speed = prompter.settings.wordsPerMinute
+        defer { prompter.settings.wordsPerMinute = speed }
+        prompter.settings.wordsPerMinute = 140
+        let remote = prompter.remote
+        await remote.start()
+        try XCTSkipIf(remote.server == nil && LocalHTTPServer.lanAddresses().isEmpty, "This Mac isn't on a network.")
+        let server = try XCTUnwrap(remote.server)
+        defer { remote.stop() }
+        let base = base(server)
+
+        let (page, response) = try await get(base)
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertTrue(String(decoding: page, as: UTF8.self).contains("Teleprompter Remote"))
+
+        let events = EventReader(session: session, url: base.appendingPathComponent("events"))
+        defer { events.cancel() }
+        try await events.waitFor { $0.event == "state" && $0.data.contains("\"wpm\":140") }
+        try await waitUntil { remote.connected == 1 }
+
+        let faster = try JSONEncoder().encode(TeleprompterRemoteCommand(action: "faster"))
+        let (_, ok) = try await send("POST", base.appendingPathComponent("command"), body: faster)
+        XCTAssertEqual(ok.statusCode, 200)
+        XCTAssertEqual(prompter.settings.wordsPerMinute, 150)
+        try await events.waitFor { $0.event == "state" && $0.data.contains("\"wpm\":150") }
+
+        let (_, bad) = try await send("POST", base.appendingPathComponent("command"), body: Data("nope".utf8))
+        XCTAssertEqual(bad.statusCode, 400)
+        events.cancel()
+        try await waitUntil { remote.connected == 0 }
+    }
+
     func testWhiteboardExportsDrawUprightAndEraserCutsInk() throws {
         // A thick black line across the top quarter, then an eraser over its left half.
         let line = WhiteboardElement(id: "a", kind: .pen, color: "#000000", width: 0.02, points: [0.1, 0.25, 0.9, 0.25])

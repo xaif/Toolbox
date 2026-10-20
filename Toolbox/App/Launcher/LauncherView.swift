@@ -6,8 +6,56 @@ import SwiftUI
 final class LauncherModel {
     struct Section: Identifiable {
         let title: String
-        let tools: [Tool]
+        let entries: [Entry]
         var id: String { title }
+
+        init(title: String, tools: [Tool]) {
+            self.title = title
+            entries = tools.map(Entry.tool)
+        }
+
+        init(title: String, commands: [Command]) {
+            self.title = title
+            entries = commands.map(Entry.command)
+        }
+    }
+
+    /// Something the launcher does for Toolbox itself rather than a tool, like Check for Updates.
+    struct Command: Identifiable, Equatable {
+        let id: String
+        let title: String
+        var subtitle: String?
+        let symbol: String
+        /// What ↩ does, shown in the action bar.
+        let actionTitle: String
+        /// Searched along with the title.
+        var keywords: [String] = []
+        let perform: @MainActor () -> Void
+
+        static func == (lhs: Command, rhs: Command) -> Bool {
+            lhs.id == rhs.id && lhs.title == rhs.title && lhs.subtitle == rhs.subtitle
+        }
+    }
+
+    /// A row in the results.
+    enum Entry: Identifiable, Equatable {
+        case tool(Tool)
+        case command(Command)
+
+        var id: String {
+            switch self {
+            case .tool(let tool): "tool:\(tool.id)"
+            case .command(let command): "command:\(command.id)"
+            }
+        }
+
+        var tool: Tool? {
+            if case .tool(let tool) = self { tool } else { nil }
+        }
+
+        var command: Command? {
+            if case .command(let command) = self { command } else { nil }
+        }
     }
 
     struct Action: Identifiable {
@@ -155,10 +203,18 @@ final class LauncherModel {
                 // Stable partition: tools that take the selected files come first.
                 results = results.filter { acceptedCounts[$0.id] != nil } + results.filter { acceptedCounts[$0.id] == nil }
             }
-            return results.isEmpty ? [] : [Section(title: "Results", tools: results)]
+            var sections: [Section] = []
+            let commands = commands(matching: trimmed)
+            if !commands.isEmpty { sections.append(Section(title: "Toolbox", commands: commands)) }
+            if !results.isEmpty { sections.append(Section(title: "Results", tools: results)) }
+            return sections
         }
 
         var sections: [Section] = []
+        // Like Raycast, a waiting update sits at the top until it's installed, skipped or put off.
+        if acceptedCounts.isEmpty, Updater.shared.showsBanner, let update = Updater.shared.update {
+            sections.append(Section(title: "Update Available", commands: [updateCommand(update)]))
+        }
         var shown = Set<String>()
         func add(_ title: String, _ tools: [Tool]) {
             let fresh = tools.filter { !shown.contains($0.id) }
@@ -190,10 +246,10 @@ final class LauncherModel {
         return sections
     }
 
-    var flatTools: [Tool] { sections.flatMap(\.tools) }
+    var flatEntries: [Entry] { sections.flatMap(\.entries) }
 
     func move(_ delta: Int) {
-        let count = flatTools.count
+        let count = flatEntries.count
         guard count > 0 else { return }
         let next = min(max(highlighted + delta, 0), count - 1)
         guard next != highlighted else { return }
@@ -201,9 +257,44 @@ final class LauncherModel {
         selectionScrollRequest += 1
     }
 
-    var highlightedTool: Tool? {
-        let tools = flatTools
-        return tools.indices.contains(highlighted) ? tools[highlighted] : nil
+    var highlightedEntry: Entry? {
+        let entries = flatEntries
+        return entries.indices.contains(highlighted) ? entries[highlighted] : nil
+    }
+
+    var highlightedTool: Tool? { highlightedEntry?.tool }
+    var highlightedCommand: Command? { highlightedEntry?.command }
+
+    // MARK: Commands
+
+    /// Toolbox's own commands, found by searching.
+    private var commands: [Command] {
+        let updater = Updater.shared
+        var list: [Command] = []
+        if updater.hasUpdate, let update = updater.update { list.append(updateCommand(update)) }
+        list.append(Command(id: "check-for-updates", title: "Check for Updates", subtitle: "Toolbox \(updater.currentVersion)",
+                            symbol: "arrow.triangle.2.circlepath", actionTitle: "Check Now",
+                            keywords: ["update", "upgrade", "version", "new", "changelog", "release", "toolbox"]) {
+            UpdateWindowController.shared.show(check: true)
+        })
+        return list
+    }
+
+    private func updateCommand(_ update: AppUpdate) -> Command {
+        Command(id: "install-update", title: "Update to Toolbox \(update.version)", subtitle: "See what's new",
+                symbol: "arrow.down.circle", actionTitle: "See What's New",
+                keywords: ["update", "upgrade", "install", "version", "new", "changelog", "release"]) {
+            UpdateWindowController.shared.show()
+        }
+    }
+
+    /// Commands whose title or keywords start with every word typed.
+    private func commands(matching query: String) -> [Command] {
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace)
+        return commands.filter { command in
+            let tokens = (command.title.lowercased().split(separator: " ") + command.keywords.map { Substring($0) })
+            return words.allSatisfy { word in tokens.contains { $0.hasPrefix(word) } }
+        }
     }
 
     // MARK: Favorites
@@ -228,7 +319,7 @@ final class LauncherModel {
     }
 
     private func keepHighlight(on tool: Tool) {
-        if let index = flatTools.firstIndex(of: tool) {
+        if let index = flatEntries.firstIndex(of: .tool(tool)) {
             highlighted = index
             selectionScrollRequest += 1
         }
@@ -537,6 +628,8 @@ struct LauncherView: View {
                 .onKeyPress(.return, phases: .down) { press in
                     if press.modifiers.contains(.command) {
                         LauncherController.shared.openMainWindow()
+                    } else if let command = model.highlightedCommand {
+                        LauncherController.shared.perform(command)
                     } else if let tool = model.highlightedTool {
                         if press.modifiers.isDisjoint(with: [.option, .shift]) {
                             LauncherController.shared.activate(tool)
@@ -606,11 +699,13 @@ struct LauncherView: View {
         case header(String, isFirst: Bool)
         /// `section` is the title of the section the row is in.
         case tool(Tool, index: Int, section: String)
+        case command(LauncherModel.Command, index: Int)
 
         var id: String {
             switch self {
             case .header(let title, _): "header:\(title)"
-            case .tool(let tool, _, _): "tool:\(tool.id)"
+            case .tool(let tool, _, _): LauncherModel.Entry.tool(tool).id
+            case .command(let command, _): LauncherModel.Entry.command(command).id
             }
         }
     }
@@ -620,8 +715,11 @@ struct LauncherView: View {
         var index = 0
         for (sectionIndex, section) in model.sections.enumerated() {
             rows.append(.header(section.title, isFirst: sectionIndex == 0))
-            for tool in section.tools {
-                rows.append(.tool(tool, index: index, section: section.title))
+            for entry in section.entries {
+                switch entry {
+                case .tool(let tool): rows.append(.tool(tool, index: index, section: section.title))
+                case .command(let command): rows.append(.command(command, index: index))
+                }
                 index += 1
             }
         }
@@ -632,7 +730,7 @@ struct LauncherView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if model.flatTools.isEmpty {
+                    if model.flatEntries.isEmpty {
                         ContentUnavailableView.search(text: model.query)
                             .frame(maxWidth: .infinity, minHeight: 300)
                     }
@@ -646,6 +744,20 @@ struct LauncherView: View {
                                 .padding(.top, isFirst ? 2 : 14)
                                 .padding(.bottom, 6)
                                 .id(row.id)
+                        case .command(let command, let index):
+                            LauncherCommandRow(command: command, isHighlighted: index == model.highlighted,
+                                               highlight: palette.highlight)
+                                .id(row.id)
+                                .onTapGesture { LauncherController.shared.perform(command) }
+                                .onContinuousHover { phase in
+                                    if case .active = phase, !model.actionsOpen, !model.isRecordingHotKey {
+                                        let location = NSEvent.mouseLocation
+                                        if let previous = lastPointerLocation, location != previous {
+                                            model.highlighted = index
+                                        }
+                                        lastPointerLocation = location
+                                    }
+                                }
                         case .tool(let tool, let index, let section):
                             // Within a category's own section its name would only repeat the header.
                             LauncherRow(tool: tool, isHighlighted: index == model.highlighted,
@@ -696,7 +808,7 @@ struct LauncherView: View {
             .onChange(of: model.selectionScrollRequest) {
                 // Keep the first section's header visible when the top row is selected.
                 if model.highlighted == 0 { proxy.scrollTo(rows.first?.id, anchor: .top) }
-                else if let tool = model.highlightedTool { proxy.scrollTo("tool:\(tool.id)") }
+                else if let entry = model.highlightedEntry { proxy.scrollTo(entry.id) }
             }
             .onChange(of: model.query) { proxy.scrollTo(rows.first?.id, anchor: .top) }
             .onChange(of: model.focusRequest) { proxy.scrollTo(rows.first?.id, anchor: .top) }
@@ -720,7 +832,7 @@ struct LauncherView: View {
                     } else if model.actionsOpen {
                         actionsPanel
                             .glassEffect(.regular, in: .rect(cornerRadius: Self.popoverRadius))
-                    } else if model.optionsTool != nil || model.highlightedTool != nil {
+                    } else if model.optionsTool != nil || model.highlightedEntry != nil {
                         actionBar
                             .glassEffect(.regular, in: .capsule)
                     }
@@ -740,6 +852,10 @@ struct LauncherView: View {
         Menu {
             Button("Open Toolbox Window") { LauncherController.shared.openMainWindow() }
             Button("Toolbox Settings…") { LauncherController.shared.openSettings() }
+            Button(Updater.shared.hasUpdate ? "Update to Toolbox \(Updater.shared.update?.version.description ?? "")…" : "Check for Updates…") {
+                LauncherController.shared.hide()
+                UpdateWindowController.shared.show(check: !Updater.shared.hasUpdate)
+            }
             Divider()
             Button("Quit Toolbox") { NSApp.terminate(nil) }
         } label: {
@@ -758,7 +874,25 @@ struct LauncherView: View {
 
     /// Raycast's action bar: the primary action, Options (when the tool has them) and Actions. Every
     /// part is a button, so the launcher works with the mouse alone.
+    @ViewBuilder
     private var actionBar: some View {
+        if model.optionsTool == nil, let command = model.highlightedCommand {
+            Button { LauncherController.shared.perform(command) } label: {
+                HStack(spacing: 7) {
+                    Text(command.actionTitle).fontWeight(.medium)
+                    KeyCap("↩")
+                }
+            }
+            .buttonStyle(BarButtonStyle(highlight: palette.highlight))
+            .font(.system(size: 13))
+            .padding(.horizontal, BarButtonStyle.inset)
+            .frame(height: LauncherPanel.controlHeight)
+        } else {
+            toolActionBar
+        }
+    }
+
+    private var toolActionBar: some View {
         let optionsTool = model.optionsTool
         let tool = optionsTool ?? model.highlightedTool
         let ready = optionsTool.map(isReady) ?? true
@@ -1022,6 +1156,35 @@ struct LauncherView: View {
         .padding(.horizontal, 10)
         .frame(height: 34)
         .background(isHighlighted ? palette.highlight : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+    }
+}
+
+/// A row for one of Toolbox's own commands.
+private struct LauncherCommandRow: View {
+    let command: LauncherModel.Command
+    let isHighlighted: Bool
+    let highlight: Color
+
+    var body: some View {
+        HStack(spacing: 11) {
+            ToolIcon(symbol: command.symbol, tint: .accentColor, size: 22)
+            Text(command.title)
+                .font(.system(size: 14))
+                .foregroundStyle(.primary)
+            if let subtitle = command.subtitle {
+                Text(subtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text("Command")
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 40)
+        .background(isHighlighted ? highlight : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
     }
 }

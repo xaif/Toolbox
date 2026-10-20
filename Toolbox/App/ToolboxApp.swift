@@ -45,11 +45,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HotKeyManager.shared.update()
             MenuBarIcon.shared.update()
             DragWheel.shared.update()
+            Teleprompter.shared.updateHotKeys()
+            Updater.shared.start()
             // After the main window opens, so the welcome window lands in front of it.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { OnboardingController.shared.showIfNeeded() }
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "debugShowLauncher") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { LauncherController.shared.show() }
+            }
+            // `-debugTeleprompter YES` shows the prompter. Add `-debugTeleprompterCapturable YES` to see it in screenshots.
+            if UserDefaults.standard.bool(forKey: "debugTeleprompter") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { Teleprompter.shared.toggle() }
             }
             // `-debugQuickRun image.compress -debugInputs /a.png,/b.png` runs a quick action a few seconds
             // after launch, as if picked in the launcher.
@@ -95,6 +101,9 @@ struct AppCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { UpdateWindowController.shared.show(check: true) }
+        }
         CommandGroup(after: .appSettings) {
             Button("Permissions…") { OnboardingController.shared.show(page: .permissions) }
         }
@@ -105,6 +114,7 @@ struct AppCommands: Commands {
                 .keyboardShortcut("0")
             Button("Show Quick Launcher") { LauncherController.shared.show() }
             Button("File Wheel for Finder Selection") { DragWheel.shared.showForFinderSelection() }
+            Button("Show or Hide Teleprompter") { Teleprompter.shared.toggle() }
         }
         CommandGroup(before: .sidebar) {
             ForEach(FeaturedCollection.allCases) { collection in

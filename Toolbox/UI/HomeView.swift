@@ -19,11 +19,17 @@ struct HomeView: View {
         @Bindable var model = model
         ScrollView {
             VStack(spacing: 28) {
-                VStack(spacing: 6) {
-                    Text("What do you want to do?")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("\(ToolRegistry.all.count) tools for media, documents, PDFs, archives and on-device AI. Everything runs on your Mac.")
-                        .foregroundStyle(.secondary)
+                VStack(spacing: 22) {
+                    if Updater.shared.showsBanner {
+                        UpdateBanner(updater: Updater.shared)
+                            .frame(maxWidth: 640)
+                    }
+                    VStack(spacing: 6) {
+                        Text("What do you want to do?")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                        Text("\(ToolRegistry.all.count) tools for media, documents, PDFs, archives and on-device AI. Everything runs on your Mac.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.top, 28)
 

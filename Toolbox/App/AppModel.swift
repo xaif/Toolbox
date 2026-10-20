@@ -71,7 +71,7 @@ enum FeaturedCollection: String, CaseIterable, Identifiable, Hashable {
 
     var toolIDs: [String] {
         switch self {
-        case .screenRecording: ["video.record-screen", "video.trim", "video.burn-subtitles", "ai.transcribe", "video.to-gif"]
+        case .screenRecording: ["video.record-screen", "video.teleprompter", "video.trim", "video.burn-subtitles", "ai.transcribe", "video.to-gif"]
         case .pdf: ToolRegistry.tools(in: .pdf).map(\.id)
         case .ai: ToolRegistry.tools(in: .ai).map(\.id)
         case .batch: ["video.convert", "video.compress", "audio.convert", "image.convert", "image.compress", "image.resize", "pdf.compress", "files.batch-rename"]

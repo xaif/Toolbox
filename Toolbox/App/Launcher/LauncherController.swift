@@ -81,6 +81,12 @@ final class LauncherController: NSObject, NSWindowDelegate {
         if !QuickRun.start(tool, on: files) { AppModel.shared.openTool(tool, with: files) }
     }
 
+    /// Runs one of Toolbox's own commands, like Check for Updates.
+    func perform(_ command: LauncherModel.Command) {
+        hide()
+        command.perform()
+    }
+
     func openMainWindow() {
         hide()
         AppModel.shared.summon()

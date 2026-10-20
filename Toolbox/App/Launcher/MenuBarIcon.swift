@@ -41,7 +41,12 @@ final class MenuBarIcon: NSObject {
         menu.addItem(withTitle: "Open Launcher", action: #selector(openLauncher), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open Toolbox Window", action: #selector(openWindow), keyEquivalent: "").target = self
         menu.addItem(withTitle: "File Wheel for Finder Selection", action: #selector(openFileWheel), keyEquivalent: "").target = self
+        menu.addItem(withTitle: Teleprompter.shared.isShowing ? "Hide Teleprompter" : "Show Teleprompter",
+                     action: #selector(toggleTeleprompter), keyEquivalent: "").target = self
         menu.addItem(.separator())
+        let updater = Updater.shared
+        menu.addItem(withTitle: updater.hasUpdate ? "Update to Toolbox \(updater.update?.version.description ?? "")…" : "Check for Updates…",
+                     action: #selector(checkForUpdates), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Quit Toolbox", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         // Attach the menu just for this click, so a plain click keeps opening the launcher.
@@ -53,5 +58,7 @@ final class MenuBarIcon: NSObject {
     @objc private func openLauncher() { LauncherController.shared.show() }
     @objc private func openWindow() { LauncherController.shared.openMainWindow() }
     @objc private func openFileWheel() { DragWheel.shared.showForFinderSelection() }
+    @objc private func toggleTeleprompter() { Teleprompter.shared.toggle() }
     @objc private func openSettings() { LauncherController.shared.openSettings() }
+    @objc private func checkForUpdates() { UpdateWindowController.shared.show(check: !Updater.shared.hasUpdate) }
 }
