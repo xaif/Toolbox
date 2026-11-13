@@ -2,7 +2,7 @@
 
 # Toolbox
 
-A native macOS app (SwiftUI, macOS 26+) with 84 tools for media, photos, PDFs, documents,
+A native macOS app (SwiftUI, macOS 26+) with 85 tools for media, photos, PDFs, documents,
 archives, on-device AI and small-business billing. Includes Tangerine-style drag wheels, the 275
 advertised conversion routes (plus PDF → HTML), ihatepdf.cv's PDF suite and six file actions.
 Processing runs locally: no account, no uploads.
@@ -54,7 +54,7 @@ allows custom executable paths and offers installation:
 Apple Pages must be installed for PAGES import/export; macOS asks for Automation permission.
 Core image/PDF tools, OCR, subtitles, EPUB packaging and ZIP/TAR/GZIP extraction need no extra engine.
 
-## Tools (84)
+## Tools (85)
 
 | Category | Tools |
 |---|---|
@@ -63,7 +63,7 @@ Core image/PDF tools, OCR, subtitles, EPUB packaging and ZIP/TAR/GZIP extraction
 | Images (14) | Convert, Compress, Resize, Rotate, Remove Background (Vision), Remove Metadata, Edit, Annotate, Add Background, Crop, Redact, Collage, Read QR Codes, Whiteboard (live drawing with browsers on your network) |
 | PDF (27) | Merge, Split, Organize, Delete Pages, Extract Pages, Compress, Sign, Add Password, Remove Password, Images to PDF, PDF to Images (up to 600 DPI, optional ZIP), Edit (retype text, text boxes, images, signatures), Compare, Rotate, Crop & Resize, Watermark, Page Numbers, Headers & Footers, Invert Colors, Flatten, Fingerprint, Make Searchable (OCR), Scan (iPhone/iPad/Mac camera), Redact (burned in, text removed), Create PDF (rich text/HTML/Markdown), Repair, Privacy Scan |
 | On-device AI (7) | Transcribe (SpeechAnalyzer → TXT/SRT/VTT/PDF), Dictation, Extract Text (Vision OCR), Summarize (Foundation Models), Translate (Translation framework), Chat with PDF (Foundation Models, cited pages), PDF to Audio (speech synthesis) |
-| Files (7) | Convert Files, File Actions, Extract Archive, Create Archive, Edit Metadata, Batch Rename (copies by default, or in place with undo), Share on Wi-Fi (link + QR for any browser on your network) |
+| Files (8) | Convert Files, Website to Markdown (web pages as Markdown files, through markdown.new), File Actions, Extract Archive, Create Archive, Edit Metadata, Batch Rename (copies by default, or in place with undo), Share on Wi-Fi (link + QR for any browser on your network) |
 | Business (2) | GST Invoice (CGST/SGST/IGST, GSTIN checks, PDF), POS Billing (catalog, barcode input, 58/80 mm receipts, UPI QR) |
 
 Convert Files supports images (including SVG input and AVIF/WebP output), video/GIF/MP3, all eight
@@ -78,6 +78,8 @@ Notes:
 - Summarize needs Apple Intelligence enabled on a supported Mac; the tool explains when it isn't available.
 - Speech and translation models are one-time system downloads; the tools offer to download them.
 - Download Video depends on a current yt-dlp (sites change often). The tool has an "Update yt-dlp" button.
+- Website to Markdown is the one tool that uses an online service: it sends each link (never a file) to
+  [markdown.new](https://markdown.new), which reads the page and returns Markdown. Public pages only, 500 a day per IP address.
 - Homebrew's FFmpeg has no libass, so subtitles and captions are rendered with AVFoundation instead.
 
 ## How it works

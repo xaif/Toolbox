@@ -34,37 +34,7 @@ struct DownloadVideoView: View {
     var body: some View {
         ToolPage(tool: tool, runner: runner) {
             Group {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Links").font(.headline)
-                        if !urls.isEmpty {
-                            Text("\(urls.count)").font(.caption.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 1)
-                                .background(.quaternary, in: Capsule())
-                        }
-                        Spacer()
-                        Button("Paste") {
-                            if let pasted = NSPasteboard.general.string(forType: .string) {
-                                text = text.isEmpty ? pasted : text + "\n" + pasted
-                            }
-                        }
-                    }
-                    TextEditor(text: $text)
-                        .font(.body.monospaced())
-                        .frame(minHeight: 110, maxHeight: 200)
-                        .scrollContentBackground(.hidden)
-                        .padding(6)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(alignment: .topLeading) {
-                            if text.isEmpty {
-                                Text("Paste one or more video links, one per line")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 11).padding(.vertical, 6)
-                                    .allowsHitTesting(false)
-                            }
-                        }
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.separator.opacity(0.5)))
-                }
+                LinkListEditor(text: $text, count: urls.count, placeholder: "Paste one or more video links, one per line")
 
                 ToolSection("Options", footnote: "Only download videos you have the right to save. Downloads are fetched directly by yt-dlp on your Mac.") {
                     Picker("Quality", selection: $quality) {

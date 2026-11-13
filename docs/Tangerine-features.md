@@ -97,7 +97,8 @@ QR/barcode reading is also included, as described by the App Store listing.
   redaction uses a stationary region; it does not track moving subjects. Snapshot stepping uses a
   30 fps increment; exported times are processed by FFmpeg at the requested timestamp.
 - Local conversions and tools do not upload files. AirDrop deliberately shares selected items through
-  the macOS recipient picker; Download Video deliberately retrieves a user-supplied URL.
+  the macOS recipient picker; Download Video deliberately retrieves a user-supplied URL. Website to Markdown
+  sends the links you paste (never files) to markdown.new, which fetches the pages and returns Markdown.
 
 ## Verification
 

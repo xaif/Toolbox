@@ -6,6 +6,9 @@ land; `scripts/publish.sh <version>` turns that section into the release.
 
 ## Unreleased
 
+### New
+- **Website to Markdown.** Paste one or more links and get each page as a clean Markdown file, ready for notes or to hand to an AI. You can keep the images, and render pages that load their content with JavaScript. It uses the free markdown.new service: only the link is sent, never your files.
+
 ## 0.3.1 — 2026-10-20
 
 ### Changed
